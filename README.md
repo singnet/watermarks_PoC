@@ -84,8 +84,9 @@ openwater-demo/
 ├── openwater_mk/           # installable package
 │   ├── __init__.py         # public re-exports
 │   ├── cli.py              # `openwater` console entrypoint
-│   ├── pipeline.py         # run_demo, sign_and_embed, verify, inspect_only
+│   ├── pipeline.py         # run_demo, sign_and_embed, verify, anchor_*
 │   ├── storage.py          # LocalFileStore / FakeArweaveStore / FakeIPFSStore
+│   ├── cardano.py          # AnchorRecord, metadata-label 40961, MockCardanoBackend
 │   └── transforms.py       # named TRANSFORMS map for the CLI --transform flag
 ├── tests/
 │   ├── test_demo.py        # in-process pipeline (7 cases)
@@ -131,11 +132,28 @@ Captured runs under `out/_transform_samples/<name>/`. Production hostile-
 channel watermarking is the V8 line item in the implementation-time-estimates
 doc and is not on the V1 path.
 
+## Cardano metadata anchoring (mock backend today)
+
+Anchors are published per §16.6 of the design doc: a compact CBOR-friendly
+commitment under metadata label ``40961`` (the experimental MVP label
+specified in §16.6.3). The current backend is a process-local mock that
+fakes Cardano-shaped tx hashes, slots, and block hashes — enough to drive
+verification end-to-end and pin the metadata schema before any real
+wallet is involved. ``BlockfrostCardanoBackend`` is stubbed for the real
+path.
+
+```bash
+openwater sign-embed --storage fake-arweave --out /tmp/run-ar
+openwater anchor /tmp/run-ar --out /tmp/run-ar-anchor --epoch 0
+cat /tmp/run-ar-anchor/metadata.json          # the compact metadata as submitted
+openwater verify-anchor /tmp/run-ar-anchor    # confirms tx, recomputes hashes, checks fields
+```
+
 ## Defer to V1+
 
 - Real Arweave uploads (need funded wallet + ``arweave-python-client``)
 - Real IPFS pinning (need daemon or Pinata/web3.storage credentials)
-- Cardano metadata anchoring
+- Real Cardano tx submission (need ``pycardano`` + funded wallet, e.g. via Blockfrost)
 - SHORT64-HV pointer mode (for low-capacity channels)
 - C2PA SDK / JUMBF packaging
 - Rholang trust-machine contracts

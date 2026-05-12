@@ -4,14 +4,28 @@ The actual cryptography, watermarking, essence hashing, and verification all
 live in the upstream ``oprow`` package. This package is just the glue that
 makes a runnable end-to-end demo, plus the ``openwater`` CLI entrypoint.
 """
+from .cardano import (
+    OPENWATER_CARDANO_METADATA_LABEL,
+    AnchorRecord,
+    AnchorReceipt,
+    AnchorResult,
+    AnchorVerification,
+    MockCardanoBackend,
+    anchor_record_hash,
+    build_metadata_payload,
+    publish_anchor,
+    verify_anchor,
+)
 from .pipeline import (
     SignEmbedResult,
     VerifyResult,
+    anchor_sign_embed_output,
     embed_only,
     inspect_only,
     run_demo,
     sign_and_embed,
     verify,
+    verify_anchor_dir,
 )
 from .storage import (
     BACKEND_NAMES,
@@ -40,4 +54,17 @@ __all__ = [
     "embed_only",
     "verify",
     "inspect_only",
+    # Cardano anchoring
+    "OPENWATER_CARDANO_METADATA_LABEL",
+    "AnchorRecord",
+    "AnchorReceipt",
+    "AnchorResult",
+    "AnchorVerification",
+    "MockCardanoBackend",
+    "anchor_record_hash",
+    "build_metadata_payload",
+    "publish_anchor",
+    "verify_anchor",
+    "anchor_sign_embed_output",
+    "verify_anchor_dir",
 ]

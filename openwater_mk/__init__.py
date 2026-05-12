@@ -13,12 +13,28 @@ from .pipeline import (
     sign_and_embed,
     verify,
 )
+from .storage import (
+    BACKEND_NAMES,
+    FakeArweaveStore,
+    FakeIPFSStore,
+    LocalFileStore,
+    ManifestStore,
+    detect_backend,
+    store_from_spec,
+)
 from .transforms import TRANSFORMS
 
 __all__ = [
     "SignEmbedResult",
     "VerifyResult",
     "TRANSFORMS",
+    "BACKEND_NAMES",
+    "ManifestStore",
+    "LocalFileStore",
+    "FakeArweaveStore",
+    "FakeIPFSStore",
+    "store_from_spec",
+    "detect_backend",
     "run_demo",
     "sign_and_embed",
     "embed_only",

@@ -95,8 +95,17 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
-    from .web import run as _run
-    _run(host=args.host, port=args.port, jobs_root=args.jobs_root)
+    from .web import UnsafeBindError, run as _run
+    try:
+        _run(
+            host=args.host,
+            port=args.port,
+            jobs_root=args.jobs_root,
+            unsafe_public=args.unsafe_public,
+        )
+    except UnsafeBindError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -204,6 +213,9 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--port", type=int, default=8000, help="bind port (default 8000)")
     ps.add_argument("--jobs-root", type=Path, default=None,
                     help="per-job storage root (default $OPENWATER_JOBS_ROOT or /tmp/openwater-mk-jobs)")
+    ps.add_argument("--unsafe-public", action="store_true",
+                    help="allow binding to a non-loopback host. The service has no authentication; "
+                         "passing this flag waives the safety check. See SECURITY.md.")
     ps.set_defaults(func=_cmd_serve)
 
     # verify-anchor

@@ -9,9 +9,12 @@ Not a robust watermark, not a hosted service. See README for V1+ scope.
 
 Usage:
 
-    python demo_internal.py                   # synthetic sample image
-    python demo_internal.py --input pic.png   # real input
-    python demo_internal.py --tamper          # mutate RGB after embed; verify must fail
+    python demo_internal.py                            # synthetic sample image
+    python demo_internal.py --input pic.png            # real input
+    python demo_internal.py --tamper                   # mutate RGB after embed; verify must fail
+    python demo_internal.py --transform png_rgba       # benign re-encode preserving alpha; verify passes
+    python demo_internal.py --transform png_rgb        # alpha-stripping re-encode; locator destroyed
+    python demo_internal.py --transform jpeg_q82       # lossy JPEG; alpha-LSB carrier dies
 """
 from __future__ import annotations
 
@@ -45,7 +48,19 @@ from oprow import (
     generate_ed25519_keypair,
     verify_artifact_from_watermark,
 )
+from oprow.benchmark.transforms import (
+    JPEGRecompressTransform,
+    PNGRoundTripTransform,
+)
 from oprow.core.enums import SignatureRole
+
+
+TRANSFORMS = {
+    "png_rgba": PNGRoundTripTransform(mode="RGBA", name="png_roundtrip_rgba"),
+    "png_rgb": PNGRoundTripTransform(mode="RGB", name="png_roundtrip_rgb"),
+    "jpeg_q82": JPEGRecompressTransform(quality=82),
+    "jpeg_q60": JPEGRecompressTransform(quality=60),
+}
 
 
 def _load_artifact(path: Path | None) -> Artifact:
@@ -100,7 +115,11 @@ def main() -> int:
                    help="output directory (default: out/)")
     p.add_argument("--tamper", action="store_true",
                    help="invert center RGB after embed; verify must reject")
+    p.add_argument("--transform", choices=sorted(TRANSFORMS), default=None,
+                   help="apply a transform to the watermarked image before verify")
     args = p.parse_args()
+    if args.tamper and args.transform:
+        p.error("--tamper and --transform are mutually exclusive")
     args.out.mkdir(parents=True, exist_ok=True)
 
     artifact = _load_artifact(args.input)
@@ -129,11 +148,18 @@ def main() -> int:
 
     verify_input = embedded.artifact
     tampered_path: Path | None = None
+    transformed_path: Path | None = None
     if args.tamper:
         tampered_bytes = _tamper_rgb(embedded.artifact.read_bytes())
         tampered_path = args.out / "tampered.png"
         tampered_path.write_bytes(tampered_bytes)
         verify_input = Artifact.from_bytes(tampered_bytes, media_type="image/png")
+    elif args.transform:
+        transform = TRANSFORMS[args.transform]
+        verify_input = transform.apply(embedded.artifact)
+        ext = "jpg" if verify_input.media_type == "image/jpeg" else "png"
+        transformed_path = args.out / f"transformed_{args.transform}.{ext}"
+        transformed_path.write_bytes(verify_input.read_bytes())
 
     cas = MemoryCAS()
     cas.put_manifest(signed)
@@ -152,8 +178,10 @@ def main() -> int:
     out = {
         "input": str(args.input) if args.input else "synthetic",
         "tampered": args.tamper,
+        "transform": args.transform,
         "watermarked_path": str(watermarked_path),
         "tampered_path": str(tampered_path) if tampered_path else None,
+        "transformed_path": str(transformed_path) if transformed_path else None,
         "key_id": str(key.kid),
         "pointer_mode": PointerMode.FULL160.value,
         "watermark_alg_id": profile.alg_id,

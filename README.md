@@ -47,7 +47,10 @@ python -m venv .venv
 . .venv/bin/activate
 pip install -e ../oprow_step14_benchmarks
 python demo_internal.py
-python demo_internal.py --tamper           # negative case: verified=false
+python demo_internal.py --tamper                # negative case: content_mismatch
+python demo_internal.py --transform png_rgba    # benign re-encode: still verified
+python demo_internal.py --transform png_rgb     # alpha stripped: locator dies
+python demo_internal.py --transform jpeg_q82    # lossy: locator dies
 ```
 
 ## Layout
@@ -80,6 +83,22 @@ expected outcome:
 This is the watermark/copy-paste resistance story from §21.1–21.2 of the
 OpenWater design doc: extracting a locator is **not** proof of provenance —
 the manifest's essence binding must match the artifact's content.
+
+## Channel robustness (alpha-LSB reference carrier only)
+
+The reference watermark profile is alpha-LSB. It is deliberately fragile:
+it shows the orchestration end-to-end but is **not** a production carrier.
+`--transform` exercises three points on the channel-robustness spectrum:
+
+| Transform | Expected extraction | Expected verification | Notes |
+| --- | --- | --- | --- |
+| `png_rgba` | `extracted` | `verified` | PNG re-encode preserving alpha: locator survives |
+| `png_rgb` | `no_watermark` | `no_watermark` | PNG re-encode stripping alpha: carrier destroyed |
+| `jpeg_q82` | `no_watermark` | `no_watermark` | Lossy JPEG: alpha gone, RGB also perturbed |
+
+Captured runs under `out/_transform_samples/<name>/`. Production hostile-
+channel watermarking is the V8 line item in the implementation-time-estimates
+doc and is not on the V1 path.
 
 ## Defer to V1+
 

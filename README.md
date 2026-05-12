@@ -87,7 +87,8 @@ openwater-demo/
 │   ├── pipeline.py         # run_demo, sign_and_embed, verify, anchor_*
 │   ├── storage.py          # LocalFileStore / FakeArweaveStore / FakeIPFSStore
 │   ├── cardano.py          # AnchorRecord, metadata-label 40961, MockCardanoBackend
-│   └── transforms.py       # named TRANSFORMS map for the CLI --transform flag
+│   ├── transforms.py       # named TRANSFORMS map for the CLI --transform flag
+│   └── web/                # FastAPI service: server.py, jobs.py, templates.py
 ├── tests/
 │   ├── test_demo.py        # in-process pipeline (7 cases)
 │   └── test_cli.py         # CLI surface (6 cases)
@@ -131,6 +132,27 @@ it shows the orchestration end-to-end but is **not** a production carrier.
 Captured runs under `out/_transform_samples/<name>/`. Production hostile-
 channel watermarking is the V8 line item in the implementation-time-estimates
 doc and is not on the V1 path.
+
+## openwater.mk web service
+
+A small FastAPI service exposes the pipeline over HTTP. No DB, no auth,
+no rate limiting yet — V1 Slice B from the implementation-time-estimates
+doc.
+
+```bash
+openwater serve --port 8000              # http://127.0.0.1:8000
+# in another shell:
+curl http://127.0.0.1:8000/healthz
+JOB=$(curl -s -X POST -F storage=fake-arweave http://127.0.0.1:8000/sign-embed | jq -r .job_id)
+curl -X POST http://127.0.0.1:8000/jobs/$JOB/verify
+curl -X POST "http://127.0.0.1:8000/jobs/$JOB/anchor?epoch=0"
+# Human-friendly HTML verify report:
+xdg-open "http://127.0.0.1:8000/jobs/$JOB/report.html"
+```
+
+Interactive API docs at `/docs` (auto-generated). The service stores
+per-job artifacts under `OPENWATER_JOBS_ROOT` (default
+`/tmp/openwater-mk-jobs`).
 
 ## Cardano metadata anchoring (mock backend today)
 

@@ -94,6 +94,12 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0 if out["status"] == "extracted" else 1
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from .web import run as _run
+    _run(host=args.host, port=args.port, jobs_root=args.jobs_root)
+    return 0
+
+
 def _cmd_anchor(args: argparse.Namespace) -> int:
     result = anchor_sign_embed_output(
         sign_embed_dir=args.sign_embed_dir,
@@ -191,6 +197,14 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--record-type", default="manifest_root",
                     help="anchor record type label (default: manifest_root)")
     pa.set_defaults(func=_cmd_anchor)
+
+    # serve
+    ps = sub.add_parser("serve", help="run the openwater.mk web service via uvicorn")
+    ps.add_argument("--host", default="127.0.0.1", help="bind host (default 127.0.0.1)")
+    ps.add_argument("--port", type=int, default=8000, help="bind port (default 8000)")
+    ps.add_argument("--jobs-root", type=Path, default=None,
+                    help="per-job storage root (default $OPENWATER_JOBS_ROOT or /tmp/openwater-mk-jobs)")
+    ps.set_defaults(func=_cmd_serve)
 
     # verify-anchor
     pva = sub.add_parser(

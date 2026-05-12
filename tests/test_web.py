@@ -128,7 +128,48 @@ def test_jobs_listing(client: TestClient) -> None:
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:
-    r = client.get("/jobs/deadbeef")
+    """A well-formed UUID that does not exist on disk -> 404."""
+    fake = "0" * 32
+    r = client.get(f"/jobs/{fake}")
     assert r.status_code == 404
-    r = client.get("/jobs/deadbeef/watermarked.png")
+    r = client.get(f"/jobs/{fake}/watermarked.png")
     assert r.status_code == 404
+
+
+def test_malformed_job_id_rejected(client: TestClient) -> None:
+    """A job id that does not match the 32-hex-char shape -> 400, never read from disk."""
+    for bad in ["deadbeef", "Z" * 32, "0" * 31, "0" * 33]:
+        r = client.get(f"/jobs/{bad}")
+        assert r.status_code == 400, bad
+
+
+def test_path_traversal_attempt_does_not_reach_handler(client: TestClient) -> None:
+    """``../`` segments must never resolve into the handler — router rejects them with 404."""
+    for bad in ["../../etc/passwd", "..%2F..%2Fetc%2Fpasswd"]:
+        r = client.get(f"/jobs/{bad}")
+        assert r.status_code in (400, 404), (bad, r.status_code)
+
+
+def test_oversize_upload_rejected_with_413(tmp_path: Path) -> None:
+    """A request with Content-Length above the cap returns 413."""
+    app = build_app(jobs_root=tmp_path / "jobs", max_upload_bytes=4096)
+    client = TestClient(app)
+    big = b"\x00" * 8192
+    r = client.post(
+        "/sign-embed",
+        files={"file": ("big.png", big, "image/png")},
+    )
+    assert r.status_code == 413
+    assert "exceeds" in r.json()["detail"]
+
+
+def test_upload_just_under_cap_is_accepted(tmp_path: Path) -> None:
+    """A small valid PNG under the cap goes through end-to-end."""
+    from io import BytesIO
+    buf = BytesIO()
+    Image.new("RGB", (32, 32), color=(120, 200, 50)).save(buf, format="PNG")
+    payload = buf.getvalue()
+    app = build_app(jobs_root=tmp_path / "jobs", max_upload_bytes=128 * 1024)
+    client = TestClient(app)
+    r = client.post("/sign-embed", files={"file": ("small.png", payload, "image/png")})
+    assert r.status_code == 200

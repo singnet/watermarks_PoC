@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openwater-mk"
+version = "0.1.0"
+description = "openwater-mk: minimal orchestration + CLI for the OpenWater provenance stack (built on oprow Version 0)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Alejandro Corona", email = "alexander.krone@singularitynet.io" },
+]
+dependencies = [
+  # oprow-step14 is consumed as an editable sibling install via:
+  #   pip install -e ../oprow_step14_benchmarks
+  # It is not listed here because it has no public PyPI release yet.
+  "Pillow>=10",
+]
+
+[project.scripts]
+openwater = "openwater_mk.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openwater_mk*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

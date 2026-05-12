@@ -6,14 +6,11 @@ acceptance suite for changes to the demo orchestration.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from demo_internal import run_demo  # noqa: E402
+from openwater_mk import run_demo
 
 
 def test_baseline_verifies(tmp_path: Path) -> None:

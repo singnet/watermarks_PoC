@@ -5,7 +5,7 @@
   "watermarked_path": "out/watermarked.png",
   "tampered_path": null,
   "transformed_path": null,
-  "key_id": "oprow-key:Ed25519:a2slJgtiP6Glkj59EyAlt69yhZjVqp8IZbyY7nNZLe0",
+  "key_id": "oprow-key:Ed25519:qz_RFRRocXhENI4fiEh7X_Uo7tgWzVAtvApPfhyH-HI",
   "pointer_mode": "full160",
   "watermark_alg_id": "IMG-ALPHA-LSB-REF-1",
   "extraction_status": "extracted",

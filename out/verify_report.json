@@ -1,0 +1,19 @@
+{
+  "input": "synthetic",
+  "watermarked_path": "out/watermarked.png",
+  "key_id": "oprow-key:Ed25519:fXiigAnYlHT2HDOHOty6pxQVBjv31chdI5vCIGajKWc",
+  "pointer_mode": "full160",
+  "watermark_alg_id": "IMG-ALPHA-LSB-REF-1",
+  "extraction_status": "extracted",
+  "locator_mode": "full160",
+  "verification_status": "verified",
+  "verified": true,
+  "embed_diagnostics": {
+    "carrier": "alpha_lsb",
+    "capacity_bits": 36864,
+    "used_carrier_bits": 744,
+    "payload_bits": 200,
+    "repetitions": 3,
+    "pointer_mode": "full160"
+  }
+}

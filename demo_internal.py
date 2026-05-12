@@ -107,22 +107,22 @@ def _to_jsonable(obj):
     return str(obj)
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--input", type=Path, default=None,
-                   help="input PNG path (default: synthetic sample)")
-    p.add_argument("--out", type=Path, default=Path("out"),
-                   help="output directory (default: out/)")
-    p.add_argument("--tamper", action="store_true",
-                   help="invert center RGB after embed; verify must reject")
-    p.add_argument("--transform", choices=sorted(TRANSFORMS), default=None,
-                   help="apply a transform to the watermarked image before verify")
-    args = p.parse_args()
-    if args.tamper and args.transform:
-        p.error("--tamper and --transform are mutually exclusive")
-    args.out.mkdir(parents=True, exist_ok=True)
+def run_demo(
+    *,
+    input_path: Path | None = None,
+    out_dir: Path = Path("out"),
+    tamper: bool = False,
+    transform: str | None = None,
+) -> dict:
+    """Run the full sign/embed/verify pipeline once. Returns the report dict.
 
-    artifact = _load_artifact(args.input)
+    The dict is also written to ``out_dir/verify_report.json``.
+    """
+    if tamper and transform:
+        raise ValueError("tamper and transform are mutually exclusive")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    artifact = _load_artifact(input_path)
     key = generate_ed25519_keypair(roles=[SignatureRole.TOOL])
     profile = AlphaLSBImageWatermarkProfile()
 
@@ -143,22 +143,22 @@ def main() -> int:
         strength=strength,
     )
 
-    watermarked_path = args.out / "watermarked.png"
+    watermarked_path = out_dir / "watermarked.png"
     watermarked_path.write_bytes(embedded.artifact.read_bytes())
 
     verify_input = embedded.artifact
     tampered_path: Path | None = None
     transformed_path: Path | None = None
-    if args.tamper:
+    if tamper:
         tampered_bytes = _tamper_rgb(embedded.artifact.read_bytes())
-        tampered_path = args.out / "tampered.png"
+        tampered_path = out_dir / "tampered.png"
         tampered_path.write_bytes(tampered_bytes)
         verify_input = Artifact.from_bytes(tampered_bytes, media_type="image/png")
-    elif args.transform:
-        transform = TRANSFORMS[args.transform]
-        verify_input = transform.apply(embedded.artifact)
+    elif transform:
+        tx = TRANSFORMS[transform]
+        verify_input = tx.apply(embedded.artifact)
         ext = "jpg" if verify_input.media_type == "image/jpeg" else "png"
-        transformed_path = args.out / f"transformed_{args.transform}.{ext}"
+        transformed_path = out_dir / f"transformed_{transform}.{ext}"
         transformed_path.write_bytes(verify_input.read_bytes())
 
     cas = MemoryCAS()
@@ -176,9 +176,9 @@ def main() -> int:
     )
 
     out = {
-        "input": str(args.input) if args.input else "synthetic",
-        "tampered": args.tamper,
-        "transform": args.transform,
+        "input": str(input_path) if input_path else "synthetic",
+        "tampered": tamper,
+        "transform": transform,
         "watermarked_path": str(watermarked_path),
         "tampered_path": str(tampered_path) if tampered_path else None,
         "transformed_path": str(transformed_path) if transformed_path else None,
@@ -196,20 +196,42 @@ def main() -> int:
         "verified": report.verified,
         "embed_diagnostics": _to_jsonable(embedded.diagnostics),
     }
-    report_path = args.out / "verify_report.json"
+    report_path = out_dir / "verify_report.json"
     report_path.write_text(json.dumps(out, indent=2, default=str))
+    return out
 
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--input", type=Path, default=None,
+                   help="input PNG path (default: synthetic sample)")
+    p.add_argument("--out", type=Path, default=Path("out"),
+                   help="output directory (default: out/)")
+    p.add_argument("--tamper", action="store_true",
+                   help="invert center RGB after embed; verify must reject")
+    p.add_argument("--transform", choices=sorted(TRANSFORMS), default=None,
+                   help="apply a transform to the watermarked image before verify")
+    args = p.parse_args(argv)
+    if args.tamper and args.transform:
+        p.error("--tamper and --transform are mutually exclusive")
+
+    out = run_demo(
+        input_path=args.input,
+        out_dir=args.out,
+        tamper=args.tamper,
+        transform=args.transform,
+    )
+    report_path = args.out / "verify_report.json"
     print(
-        f"verified={report.verified}  "
+        f"verified={out['verified']}  "
         f"extraction={out['extraction_status']}  "
         f"verification={out['verification_status']}  "
         f"report={report_path}"
     )
-    # Tamper case inverts the meaning: success = verification was correctly
-    # rejected. Without --tamper, success = verification passed.
+    # Tamper case inverts: success = verification was correctly rejected.
     if args.tamper:
-        return 0 if not report.verified else 1
-    return 0 if report.verified else 1
+        return 0 if not out["verified"] else 1
+    return 0 if out["verified"] else 1
 
 
 if __name__ == "__main__":

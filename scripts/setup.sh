@@ -13,7 +13,7 @@ fi
 pip install --upgrade pip setuptools wheel
 pip install -e ../oprow_step14_benchmarks
 pip install -r requirements.txt
-pip install -e .
+pip install -e '.[web,test]'
 
 echo "Running upstream oprow test suite as a smoke check..."
 python -m pytest ../oprow_step14_benchmarks/tests/ -q

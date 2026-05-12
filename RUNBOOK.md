@@ -97,6 +97,27 @@ Talking point: this is the shape the real product will use. The
 trust-policy and key-resolver pieces will move from a local JSON envelope
 to a registry-backed lookup. The CLI surface stays the same.
 
+### 4e. openwater.mk hosted service (local FastAPI)
+
+```bash
+openwater serve --port 8000 &
+sleep 1
+JOB=$(curl -s -X POST -F storage=fake-arweave http://127.0.0.1:8000/sign-embed | jq -r .job_id)
+echo "job_id=$JOB"
+curl -s http://127.0.0.1:8000/jobs/$JOB | jq .
+curl -s -X POST http://127.0.0.1:8000/jobs/$JOB/verify | jq .
+curl -s -X POST "http://127.0.0.1:8000/jobs/$JOB/anchor?epoch=0" | jq .
+echo "open http://127.0.0.1:8000/jobs/$JOB/report.html"
+kill %1
+```
+
+Talking point: this is the openwater.mk hosted verifier surface. The
+exposed endpoints map 1-to-1 onto the CLI subcommands so anything that
+works locally also works over HTTP. The HTML verify report
+(`/jobs/{id}/report.html`) is the version of the page a non-technical
+user would see — it includes the security caveat from the design doc
+about provenance vs. authenticity.
+
 ### 4d. Cardano metadata anchor (mock backend)
 
 ```bash

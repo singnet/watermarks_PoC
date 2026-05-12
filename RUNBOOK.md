@@ -93,10 +93,37 @@ openwater verify /tmp/run1/watermarked.png \
     --key /tmp/run1/key.json
 ```
 
-Talking point: this is the shape the real product will use. The manifest
-store will move from local `FileCAS` to Arweave/IPFS in the next phase;
-the trust-policy and key-resolver pieces will move from a local JSON
-envelope to a registry-backed lookup. The CLI surface stays the same.
+Talking point: this is the shape the real product will use. The
+trust-policy and key-resolver pieces will move from a local JSON envelope
+to a registry-backed lookup. The CLI surface stays the same.
+
+### 4c. Pluggable storage backends — Arweave and IPFS shapes today
+
+```bash
+openwater sign-embed --storage fake-arweave --out /tmp/run-ar
+cat /tmp/run-ar/storage_uri.txt        # ar://<43-char base64url txid>
+
+openwater sign-embed --storage fake-ipfs --out /tmp/run-ipfs
+cat /tmp/run-ipfs/storage_uri.txt      # ipfs://<base32 CIDv1>
+```
+
+Talking point: the `fake-*` backends emit the right identifier shapes
+without making any network calls — they persist manifest bytes to a local
+fanout directory keyed by a deterministic hash. Real Arweave / IPFS
+adapters (`ArweaveGatewayStore`, `IPFSDaemonStore`) are stubbed in
+`openwater_mk/storage.py` with the exact wiring needed once a funded
+wallet (Arweave) or a daemon / Pinata / web3.storage credentials (IPFS)
+are available. The pipeline does not care which backend it is talking to.
+
+Demo `verify` against multiple stores in order (an IPFS cache then
+Arweave durable storage, for example):
+
+```bash
+openwater verify /tmp/run-ar/watermarked.png \
+    --manifest-store /tmp/run-ipfs/manifests \
+    --manifest-store /tmp/run-ar/manifests \
+    --key /tmp/run-ar/key.json
+```
 
 ### 5. Cleanup (optional)
 

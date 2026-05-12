@@ -57,6 +57,11 @@ from oprow.manifest.keys import (
 )
 from oprow.resolution.cas import FileCAS
 
+from .storage import (
+    ManifestStore,
+    detect_backend,
+    store_from_spec,
+)
 from .transforms import TRANSFORMS
 
 
@@ -157,7 +162,9 @@ def _public_from_envelope(env: dict[str, Any]) -> PublicKeyRecord:
 class SignEmbedResult:
     watermarked_path: Path
     manifest_store: Path
+    manifest_store_backend: str
     manifest_key_hex: str
+    storage_uri: str
     key_path: Path
     diagnostics: dict[str, Any]
 
@@ -180,6 +187,7 @@ def sign_and_embed(
     *,
     input_path: Path | None,
     out_dir: Path,
+    storage_backend: str = "local",
     pointer_mode: PointerMode = PointerMode.FULL160,
     model_id: str = "openwater-demo",
     repetitions: int = 3,
@@ -190,8 +198,12 @@ def sign_and_embed(
 
     - ``watermarked.png``       — embedded artifact
     - ``key.json``              — Ed25519 keypair envelope (private + public)
-    - ``manifests/``            — FileCAS-backed manifest store (one file)
+    - ``manifests/``            — manifest store (backend-specific layout)
     - ``manifest_key.txt``      — hex of the manifest's ManifestKey
+    - ``storage_uri.txt``       — backend-specific URI (file://, ar://, ipfs://)
+
+    ``storage_backend`` may be ``"local"`` (default), ``"fake-arweave"``, or
+    ``"fake-ipfs"``. See :mod:`openwater_mk.storage`.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -220,10 +232,12 @@ def sign_and_embed(
     watermarked_path.write_bytes(embedded.artifact.read_bytes())
 
     cas_root = out_dir / "manifests"
-    cas = FileCAS(root=cas_root)
-    manifest_key = cas.put_manifest(signed)
+    store = store_from_spec(storage_backend, root=cas_root)
+    manifest_key = store.put_bytes(signed_manifest_to_bytes(signed))
+    storage_uri = store.storage_uri(manifest_key)
 
     (out_dir / "manifest_key.txt").write_text(manifest_key.to_hex() + "\n")
+    (out_dir / "storage_uri.txt").write_text(storage_uri + "\n")
 
     key_envelope = _key_to_envelope(key)
     key_path = out_dir / "key.json"
@@ -232,7 +246,9 @@ def sign_and_embed(
     return SignEmbedResult(
         watermarked_path=watermarked_path,
         manifest_store=cas_root,
+        manifest_store_backend=storage_backend,
         manifest_key_hex=manifest_key.to_hex(),
+        storage_uri=storage_uri,
         key_path=key_path,
         diagnostics=_to_jsonable(embedded.diagnostics),
     )
@@ -244,6 +260,7 @@ def embed_only(
     manifest_store: Path,
     manifest_key_hex: str,
     out_dir: Path,
+    storage_backend: str | None = None,
     pointer_mode: PointerMode = PointerMode.FULL160,
     repetitions: int = 3,
 ) -> Path:
@@ -257,9 +274,10 @@ def embed_only(
     Returns the path of the watermarked PNG.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    cas = FileCAS(root=manifest_store)
+    backend = storage_backend or detect_backend(Path(manifest_store))
+    store = store_from_spec(backend, root=Path(manifest_store))
     key = ManifestKey.from_hex(manifest_key_hex)
-    data = cas.get_bytes(key)
+    data = store.get_bytes(key)
     if data is None:
         raise FileNotFoundError(f"manifest {manifest_key_hex} not in {manifest_store}")
     signed = signed_manifest_from_bytes(data)
@@ -281,11 +299,18 @@ def embed_only(
 def verify(
     *,
     watermarked_path: Path,
-    manifest_store: Path,
+    manifest_stores: list[Path | tuple[str, Path]] | Path,
     key_envelope_path: Path,
     accepted_roles: tuple[str, ...] = ("tool",),
 ) -> VerifyResult:
-    """Verify a watermarked PNG against a persistent manifest store + key."""
+    """Verify a watermarked PNG against one or more persistent manifest stores.
+
+    ``manifest_stores`` accepts:
+
+    - a single ``Path`` (backend auto-detected),
+    - a list of ``Path`` (each backend auto-detected),
+    - a list of ``(backend_name, Path)`` tuples for explicit control.
+    """
     media_type = "image/jpeg" if watermarked_path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     artifact = Artifact.from_bytes(watermarked_path.read_bytes(), media_type=media_type)
 
@@ -294,13 +319,29 @@ def verify(
 
     profile = AlphaLSBImageWatermarkProfile()
     strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=3)
-    cas = FileCAS(root=manifest_store)
+
+    if isinstance(manifest_stores, (str, Path)):
+        items: list[Path | tuple[str, Path]] = [Path(manifest_stores)]
+    else:
+        items = list(manifest_stores)
+
+    stores: list[ManifestStore] = []
+    descriptors: list[dict[str, str]] = []
+    for item in items:
+        if isinstance(item, tuple):
+            backend, root = item
+        else:
+            root = Path(item)
+            backend = detect_backend(root)
+        store = store_from_spec(backend, root=Path(root))
+        stores.append(store)
+        descriptors.append({"backend": backend, "root": str(root), "name": store.name})
 
     report = verify_artifact_from_watermark(
         artifact,
         watermark_profile=profile,
         strength=strength,
-        resolver=CASResolver([cas]),
+        resolver=CASResolver(stores),
         key_resolver=MemoryKeyRegistry.from_public_keys([public]),
         trust_policy=TrustPolicyStub(
             trusted_key_ids={str(public.kid)},
@@ -320,7 +361,7 @@ def verify(
         ),
         report={
             "watermarked_path": str(watermarked_path),
-            "manifest_store": str(manifest_store),
+            "manifest_stores": descriptors,
             "key_id": str(public.kid),
             "extraction_status": report.extraction.status.value,
             "verification_status": (

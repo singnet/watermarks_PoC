@@ -55,12 +55,25 @@ For a cross-process round-trip (sign-and-embed in one shot, verify later
 against persisted artifacts):
 
 ```bash
-openwater sign-embed --out /tmp/run1
+openwater sign-embed --out /tmp/run1                          # local FileCAS
+openwater sign-embed --storage fake-arweave --out /tmp/run2   # ar://<43-char txid>
+openwater sign-embed --storage fake-ipfs    --out /tmp/run3   # ipfs://<CIDv1>
 openwater inspect /tmp/run1/watermarked.png
 openwater verify /tmp/run1/watermarked.png \
     --manifest-store /tmp/run1/manifests \
     --key /tmp/run1/key.json
+# Verify can also walk multiple stores in order (e.g. IPFS cache then Arweave)
+openwater verify /tmp/run2/watermarked.png \
+    --manifest-store /tmp/run3/manifests \
+    --manifest-store /tmp/run2/manifests \
+    --key /tmp/run2/key.json
 ```
+
+The `fake-arweave` and `fake-ipfs` backends emit realistic identifier
+shapes (43-char base64url Arweave txid, base32 CIDv1) but do not make
+network calls — they persist manifest bytes to a local fanout directory.
+Real Arweave/IPFS adapters are stubbed in `openwater_mk/storage.py` and
+are a localized swap-in once credentials are available.
 
 `demo_internal.py` still works as a shim for the demo subcommand only.
 
@@ -72,6 +85,7 @@ openwater-demo/
 │   ├── __init__.py         # public re-exports
 │   ├── cli.py              # `openwater` console entrypoint
 │   ├── pipeline.py         # run_demo, sign_and_embed, verify, inspect_only
+│   ├── storage.py          # LocalFileStore / FakeArweaveStore / FakeIPFSStore
 │   └── transforms.py       # named TRANSFORMS map for the CLI --transform flag
 ├── tests/
 │   ├── test_demo.py        # in-process pipeline (7 cases)
@@ -119,8 +133,8 @@ doc and is not on the V1 path.
 
 ## Defer to V1+
 
-- CLI entrypoint (`openwater sign|embed|verify`)
-- Arweave / IPFS manifest storage
+- Real Arweave uploads (need funded wallet + ``arweave-python-client``)
+- Real IPFS pinning (need daemon or Pinata/web3.storage credentials)
 - Cardano metadata anchoring
 - SHORT64-HV pointer mode (for low-capacity channels)
 - C2PA SDK / JUMBF packaging

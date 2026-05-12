@@ -25,6 +25,7 @@ from .pipeline import (
     sign_and_embed,
     verify,
 )
+from .storage import BACKEND_NAMES
 from .transforms import TRANSFORMS
 
 
@@ -48,18 +49,31 @@ def _cmd_demo(args: argparse.Namespace) -> int:
 
 
 def _cmd_sign_embed(args: argparse.Namespace) -> int:
-    result = sign_and_embed(input_path=args.input, out_dir=args.out)
+    result = sign_and_embed(
+        input_path=args.input,
+        out_dir=args.out,
+        storage_backend=args.storage,
+    )
     print(f"watermarked={result.watermarked_path}")
-    print(f"manifest_store={result.manifest_store}")
+    print(f"manifest_store={result.manifest_store}  ({result.manifest_store_backend})")
+    print(f"storage_uri={result.storage_uri}")
     print(f"manifest_key={result.manifest_key_hex}")
     print(f"key={result.key_path}")
     return 0
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
+    stores: list = []
+    for spec in args.manifest_store:
+        # accept either "PATH" (auto-detect) or "BACKEND:PATH" (explicit)
+        if ":" in spec and not Path(spec).exists():
+            backend, _, root = spec.partition(":")
+            stores.append((backend, Path(root)))
+        else:
+            stores.append(Path(spec))
     result = verify(
         watermarked_path=args.watermarked,
-        manifest_store=args.manifest_store,
+        manifest_stores=stores,
         key_envelope_path=args.key,
     )
     if args.report:
@@ -103,15 +117,17 @@ def build_parser() -> argparse.ArgumentParser:
     pse.add_argument("--input", type=Path, default=None,
                      help="input PNG (default: synthetic sample)")
     pse.add_argument("--out", type=Path, required=True,
-                     help="output directory; will contain watermarked.png, key.json, manifests/, manifest_key.txt")
+                     help="output directory; will contain watermarked.png, key.json, manifests/, manifest_key.txt, storage_uri.txt")
+    pse.add_argument("--storage", choices=BACKEND_NAMES, default="local",
+                     help="manifest-store backend (default: local). fake-arweave/fake-ipfs emit realistic txid/CID shapes without network calls.")
     pse.set_defaults(func=_cmd_sign_embed)
 
     # verify
-    pv = sub.add_parser("verify", help="verify a watermarked PNG against a persisted manifest store + key")
+    pv = sub.add_parser("verify", help="verify a watermarked PNG against one or more persisted manifest stores")
     pv.add_argument("watermarked", type=Path,
                     help="path to the watermarked image")
-    pv.add_argument("--manifest-store", dest="manifest_store", type=Path, required=True,
-                    help="FileCAS root containing the signed manifest")
+    pv.add_argument("--manifest-store", dest="manifest_store", action="append", required=True,
+                    help="manifest-store path (backend auto-detected); pass multiple to try several. Accepts BACKEND:PATH for explicit backend.")
     pv.add_argument("--key", type=Path, required=True,
                     help="path to the key envelope JSON (key.json from sign-embed)")
     pv.add_argument("--report", type=Path, default=None,

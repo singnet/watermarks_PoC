@@ -13,7 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from openwater_mk.web import build_app
+from openwater_mk.web import UnsafeBindError, build_app
+from openwater_mk.web.server import _is_loopback, run as web_run
 
 
 @pytest.fixture()
@@ -173,3 +174,23 @@ def test_upload_just_under_cap_is_accepted(tmp_path: Path) -> None:
     client = TestClient(app)
     r = client.post("/sign-embed", files={"file": ("small.png", payload, "image/png")})
     assert r.status_code == 200
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+def test_loopback_hosts_recognized(host: str) -> None:
+    assert _is_loopback(host) is True
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.1", "10.0.0.5", "8.8.8.8", "openwater.mk"])
+def test_non_loopback_hosts_recognized(host: str) -> None:
+    assert _is_loopback(host) is False
+
+
+def test_run_refuses_non_loopback_without_flag() -> None:
+    with pytest.raises(UnsafeBindError):
+        web_run(host="0.0.0.0", port=0)
+
+
+def test_run_refuses_external_ip_without_flag() -> None:
+    with pytest.raises(UnsafeBindError):
+        web_run(host="8.8.8.8", port=0)

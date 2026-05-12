@@ -337,8 +337,46 @@ def build_app(
     return app
 
 
-def run(host: str = "127.0.0.1", port: int = 8000, jobs_root: Path | None = None) -> None:
-    """Start the openwater.mk web service via uvicorn."""
+def _is_loopback(host: str) -> bool:
+    """Return True if ``host`` is a loopback literal.
+
+    Hostnames (e.g. ``localhost``) are not resolved here — the caller is
+    expected to pass an IP literal in production deployments. Accept the
+    common loopback strings explicitly.
+    """
+    if host in {"localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"}:
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback
+
+
+class UnsafeBindError(RuntimeError):
+    """Raised when ``run`` is asked to bind to a non-loopback address without ``unsafe_public=True``."""
+
+
+def run(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    jobs_root: Path | None = None,
+    *,
+    unsafe_public: bool = False,
+) -> None:
+    """Start the openwater.mk web service via uvicorn.
+
+    Refuses to bind to anything other than a loopback address unless
+    ``unsafe_public=True`` is set. The web service has no authentication
+    by default (see SECURITY.md), so binding publicly without explicit
+    consent would expose every endpoint to unauthenticated callers.
+    """
+    if not unsafe_public and not _is_loopback(host):
+        raise UnsafeBindError(
+            f"refusing to bind to non-loopback host {host!r} without unsafe_public=True; "
+            "the service has no authentication by default. See SECURITY.md."
+        )
+
     import uvicorn
 
     app = build_app(jobs_root=jobs_root)

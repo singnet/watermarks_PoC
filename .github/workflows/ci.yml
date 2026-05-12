@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout openwater-mk
+        uses: actions/checkout@v4
+        with:
+          path: openwater-mk
+
+      - name: Checkout oprow scaffold (sibling)
+        # The demo consumes oprow_step14_benchmarks as a sibling editable
+        # install. The scaffold is not yet a public repo, so this step is a
+        # placeholder: when the scaffold is published, point to it here.
+        # For now, CI builds a local copy from a tarball checked into the
+        # ci-fixtures branch of this repo, or skips if absent.
+        run: |
+          if [ -d "${{ github.workspace }}/openwater-mk/ci-fixtures/oprow_step14_benchmarks" ]; then
+            cp -r "${{ github.workspace }}/openwater-mk/ci-fixtures/oprow_step14_benchmarks" "${{ github.workspace }}/oprow_step14_benchmarks"
+            echo "OPROW_PRESENT=1" >> "$GITHUB_ENV"
+          else
+            echo "No oprow scaffold in ci-fixtures/. Skipping demo tests; running lint only." >&2
+            echo "OPROW_PRESENT=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install oprow and demo deps
+        if: env.OPROW_PRESENT == '1'
+        working-directory: openwater-mk
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ../oprow_step14_benchmarks
+          pip install -r requirements.txt
+
+      - name: Run upstream oprow test suite (smoke)
+        if: env.OPROW_PRESENT == '1'
+        working-directory: openwater-mk
+        run: python -m pytest ../oprow_step14_benchmarks/tests/ -q
+
+      - name: Run demo test suite
+        if: env.OPROW_PRESENT == '1'
+        working-directory: openwater-mk
+        run: python -m pytest tests/ -v
+
+      - name: Lint shell scripts
+        run: |
+          sudo apt-get update -y -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck openwater-mk/scripts/*.sh

@@ -48,7 +48,6 @@ python -m venv .venv
 pip install -e ../oprow_step14_benchmarks
 python demo_internal.py
 python demo_internal.py --tamper           # negative case: verified=false
-python demo_internal.py --transform png    # benign re-encode: still verified
 ```
 
 ## Layout
@@ -59,9 +58,28 @@ openwater-demo/
 ├── scripts/
 │   ├── setup.sh            # venv + install
 │   └── demo.sh             # one-shot run
-├── out/                    # demo outputs (gitignored content, kept dir)
+├── out/                    # demo outputs
+│   ├── watermarked.png     # last healthy run
+│   ├── verify_report.json
+│   └── _tamper_sample/     # captured --tamper run for reference
 └── README.md
 ```
+
+## Security boundary check
+
+With `--tamper`, the script inverts the center RGB region of the watermarked
+image, leaving the alpha channel (which carries the locator) intact. The
+expected outcome:
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| `extraction_status` | `extracted` | locator survived (alpha bits unchanged) |
+| `verification_status` | `content_mismatch` | PED-IMG-1 essence disagrees with the manifest |
+| `verified` | `false` | rejection is correct |
+
+This is the watermark/copy-paste resistance story from §21.1–21.2 of the
+OpenWater design doc: extracting a locator is **not** proof of provenance —
+the manifest's essence binding must match the artifact's content.
 
 ## Defer to V1+
 

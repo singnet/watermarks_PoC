@@ -11,6 +11,7 @@ Usage:
 
     python demo_internal.py                   # synthetic sample image
     python demo_internal.py --input pic.png   # real input
+    python demo_internal.py --tamper          # mutate RGB after embed; verify must fail
 """
 from __future__ import annotations
 
@@ -20,6 +21,10 @@ import sys
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from io import BytesIO
+
+from PIL import Image
 
 from oprow import (
     AlphaLSBImageWatermarkProfile,
@@ -49,6 +54,28 @@ def _load_artifact(path: Path | None) -> Artifact:
     return Artifact.from_bytes(path.read_bytes(), media_type="image/png")
 
 
+def _tamper_rgb(png_bytes: bytes) -> bytes:
+    """Mutate visible RGB content while preserving the alpha channel.
+
+    Alpha-LSB watermark survives — locator still extractable — but PED-IMG-1
+    essence is computed on RGB, so the manifest's essence binding must reject
+    the tampered artifact. Demonstrates the security boundary: watermark
+    recovery is not proof of provenance.
+    """
+    img = Image.open(BytesIO(png_bytes)).convert("RGBA")
+    w, h = img.size
+    pixels = img.load()
+    cx0, cy0 = w // 4, h // 4
+    cx1, cy1 = (3 * w) // 4, (3 * h) // 4
+    for x in range(cx0, cx1):
+        for y in range(cy0, cy1):
+            r, g, b, a = pixels[x, y]
+            pixels[x, y] = (255 - r, 255 - g, 255 - b, a)  # invert RGB, keep alpha
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def _to_jsonable(obj):
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -71,6 +98,8 @@ def main() -> int:
                    help="input PNG path (default: synthetic sample)")
     p.add_argument("--out", type=Path, default=Path("out"),
                    help="output directory (default: out/)")
+    p.add_argument("--tamper", action="store_true",
+                   help="invert center RGB after embed; verify must reject")
     args = p.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -98,10 +127,18 @@ def main() -> int:
     watermarked_path = args.out / "watermarked.png"
     watermarked_path.write_bytes(embedded.artifact.read_bytes())
 
+    verify_input = embedded.artifact
+    tampered_path: Path | None = None
+    if args.tamper:
+        tampered_bytes = _tamper_rgb(embedded.artifact.read_bytes())
+        tampered_path = args.out / "tampered.png"
+        tampered_path.write_bytes(tampered_bytes)
+        verify_input = Artifact.from_bytes(tampered_bytes, media_type="image/png")
+
     cas = MemoryCAS()
     cas.put_manifest(signed)
     report = verify_artifact_from_watermark(
-        embedded.artifact,
+        verify_input,
         watermark_profile=profile,
         strength=strength,
         resolver=CASResolver([cas]),
@@ -114,7 +151,9 @@ def main() -> int:
 
     out = {
         "input": str(args.input) if args.input else "synthetic",
+        "tampered": args.tamper,
         "watermarked_path": str(watermarked_path),
+        "tampered_path": str(tampered_path) if tampered_path else None,
         "key_id": str(key.kid),
         "pointer_mode": PointerMode.FULL160.value,
         "watermark_alg_id": profile.alg_id,
@@ -138,6 +177,10 @@ def main() -> int:
         f"verification={out['verification_status']}  "
         f"report={report_path}"
     )
+    # Tamper case inverts the meaning: success = verification was correctly
+    # rejected. Without --tamper, success = verification passed.
+    if args.tamper:
+        return 0 if not report.verified else 1
     return 0 if report.verified else 1
 
 

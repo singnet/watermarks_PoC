@@ -57,6 +57,17 @@ from oprow.manifest.keys import (
 )
 from oprow.resolution.cas import FileCAS
 
+from .cardano import (
+    AnchorRecord,
+    AnchorReceipt,
+    AnchorResult,
+    AnchorVerification,
+    MockCardanoBackend,
+    _anchor_from_json,
+    _anchor_to_json,
+    publish_anchor,
+    verify_anchor,
+)
 from .storage import (
     ManifestStore,
     detect_backend,
@@ -374,6 +385,75 @@ def verify(
             "verified": report.verified,
         },
     )
+
+
+def anchor_sign_embed_output(
+    *,
+    sign_embed_dir: Path,
+    cardano_dir: Path,
+    epoch: int = 0,
+    record_type: str = "manifest_root",
+) -> AnchorResult:
+    """Anchor a ``sign-embed`` output directory on the (mock) Cardano backend.
+
+    Reads:
+      ``sign_embed_dir/manifest_key.txt``   subject id + root hash
+      ``sign_embed_dir/storage_uri.txt``    off-chain storage reference
+      ``sign_embed_dir/key.json``           operator kid
+
+    Writes under ``cardano_dir``:
+      ``ledger.json``           the mock Cardano ledger (append-only)
+      ``anchor_record.json``    canonical anchor record
+      ``receipt.json``          chain-agnostic anchor receipt
+      ``metadata.json``         CBOR-friendly metadata payload as submitted
+    """
+    cardano_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_key_hex = (sign_embed_dir / "manifest_key.txt").read_text().strip()
+    subject_id = bytes.fromhex(manifest_key_hex)
+    root_hash = hashlib_sha256_of_hex(manifest_key_hex)
+
+    storage_uri = (sign_embed_dir / "storage_uri.txt").read_text().strip()
+    ar_ref = storage_uri if storage_uri.startswith("ar://") else None
+    ip_ref = storage_uri if storage_uri.startswith("ipfs://") else None
+
+    key_env = json.loads((sign_embed_dir / "key.json").read_text())
+    operator_kid = str(key_env["kid"])
+
+    record = AnchorRecord(
+        record_type=record_type,
+        subject_id=subject_id,
+        epoch=epoch,
+        root_hash=root_hash,
+        operator_kid=operator_kid,
+        ar_ref=ar_ref,
+        ip_ref=ip_ref,
+    )
+
+    backend = MockCardanoBackend(ledger_path=cardano_dir / "ledger.json")
+    return publish_anchor(record=record, backend=backend, out_dir=cardano_dir)
+
+
+def verify_anchor_dir(
+    *,
+    cardano_dir: Path,
+    min_confirmations: int = 1,
+) -> AnchorVerification:
+    """Re-verify an anchor by reading the artifacts produced above."""
+    record = _anchor_from_json(json.loads((cardano_dir / "anchor_record.json").read_text()))
+    receipt = AnchorReceipt.from_json(json.loads((cardano_dir / "receipt.json").read_text()))
+    backend = MockCardanoBackend(ledger_path=cardano_dir / "ledger.json")
+    return verify_anchor(
+        record=record,
+        receipt=receipt,
+        backend=backend,
+        min_confirmations=min_confirmations,
+    )
+
+
+def hashlib_sha256_of_hex(hex_str: str) -> bytes:
+    import hashlib
+    return hashlib.sha256(hex_str.encode("ascii")).digest()
 
 
 def inspect_only(*, watermarked_path: Path) -> dict[str, Any]:

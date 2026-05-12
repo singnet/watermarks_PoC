@@ -20,10 +20,12 @@ import sys
 from pathlib import Path
 
 from .pipeline import (
+    anchor_sign_embed_output,
     inspect_only,
     run_demo,
     sign_and_embed,
     verify,
+    verify_anchor_dir,
 )
 from .storage import BACKEND_NAMES
 from .transforms import TRANSFORMS
@@ -92,6 +94,41 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0 if out["status"] == "extracted" else 1
 
 
+def _cmd_anchor(args: argparse.Namespace) -> int:
+    result = anchor_sign_embed_output(
+        sign_embed_dir=args.sign_embed_dir,
+        cardano_dir=args.out,
+        epoch=args.epoch,
+        record_type=args.record_type,
+    )
+    print(f"anchor_record={result.anchor_record_path}")
+    print(f"receipt={result.receipt_path}")
+    print(f"metadata={result.metadata_path}")
+    print(f"tx_hash={result.receipt.chain_evidence['tx_hash']}")
+    print(f"slot={result.receipt.chain_evidence['slot']}")
+    print(f"metadata_label={result.receipt.metadata_label}")
+    print(f"metadata_size_bytes={result.receipt.chain_evidence['metadata_size_bytes']}")
+    return 0
+
+
+def _cmd_verify_anchor(args: argparse.Namespace) -> int:
+    result = verify_anchor_dir(
+        cardano_dir=args.cardano_dir,
+        min_confirmations=args.min_confirmations,
+    )
+    if args.report:
+        args.report.write_text(json.dumps({
+            "ok": result.ok,
+            "failures": list(result.failures),
+            "chain_evidence": result.chain_evidence,
+        }, indent=2))
+    if result.ok:
+        print(f"anchor_ok=True  confirmations={result.chain_evidence.get('confirmations')}")
+        return 0
+    print(f"anchor_ok=False  failures={list(result.failures)}")
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="openwater",
@@ -139,6 +176,34 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("watermarked", type=Path,
                     help="path to the watermarked image")
     pi.set_defaults(func=_cmd_inspect)
+
+    # anchor
+    pa = sub.add_parser(
+        "anchor",
+        help="publish a Cardano metadata anchor for a sign-embed output (mock backend)",
+    )
+    pa.add_argument("sign_embed_dir", type=Path,
+                    help="directory produced by `openwater sign-embed`")
+    pa.add_argument("--out", type=Path, required=True,
+                    help="output directory for ledger.json + anchor_record.json + receipt.json + metadata.json")
+    pa.add_argument("--epoch", type=int, default=0,
+                    help="monotonic anchor epoch (default 0)")
+    pa.add_argument("--record-type", default="manifest_root",
+                    help="anchor record type label (default: manifest_root)")
+    pa.set_defaults(func=_cmd_anchor)
+
+    # verify-anchor
+    pva = sub.add_parser(
+        "verify-anchor",
+        help="re-verify a Cardano metadata anchor against the local mock ledger",
+    )
+    pva.add_argument("cardano_dir", type=Path,
+                     help="directory produced by `openwater anchor`")
+    pva.add_argument("--min-confirmations", type=int, default=1,
+                     help="minimum block confirmations required (default: 1)")
+    pva.add_argument("--report", type=Path, default=None,
+                     help="optional path to write a JSON verification report")
+    pva.set_defaults(func=_cmd_verify_anchor)
 
     return p
 

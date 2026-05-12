@@ -97,6 +97,38 @@ Talking point: this is the shape the real product will use. The
 trust-policy and key-resolver pieces will move from a local JSON envelope
 to a registry-backed lookup. The CLI surface stays the same.
 
+### 4d. Cardano metadata anchor (mock backend)
+
+```bash
+openwater sign-embed --storage fake-arweave --out /tmp/run-ar
+openwater anchor /tmp/run-ar --out /tmp/run-ar-anchor --epoch 0
+cat /tmp/run-ar-anchor/metadata.json
+openwater verify-anchor /tmp/run-ar-anchor
+```
+
+Expected: `verify-anchor` prints `anchor_ok=True  confirmations=1`.
+
+Talking points:
+
+- Metadata label `40961` is the experimental MVP label called out in
+  §16.6.3 of the design doc. Schema is the §16.6.4 compact CBOR map:
+  `{v, p, t, sid, e, rh, ah, refs?, ok}`. Field meanings: schema
+  version, profile string, record type, subject id (manifest key),
+  epoch, root hash, anchor-record hash (committed on-chain), off-chain
+  refs to Arweave/IPFS, and a 16-byte digest of the operator key id.
+- Payload typically lands at ~200-300 bytes of CBOR for a single anchor.
+  Cardano metadata strings are capped at 64 bytes individually but the
+  total payload can be many KB. We stay well under that.
+- The mock backend persists a JSON "ledger" file. Each `openwater anchor`
+  call appends a fake tx with random `tx_hash` / `block_hash` and a
+  monotonically-increasing `slot`. `verify-anchor` re-derives the
+  anchor record hash, fetches the tx from the ledger, and asserts
+  every metadata field matches.
+- Real backend swap is one class:
+  `BlockfrostCardanoBackend` is wired with the exact `requests` /
+  `pycardano` calls in `openwater_mk/cardano.py`. It raises
+  `NotImplementedError` today because it needs a funded wallet.
+
 ### 4c. Pluggable storage backends — Arweave and IPFS shapes today
 
 ```bash

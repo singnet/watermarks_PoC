@@ -1,4 +1,7 @@
-# OpenWater Internal Demo
+# openwater-mk — Internal Demo
+
+Licensed under the [Apache License 2.0](LICENSE).
+
 
 Minimal runnable end-to-end demo of the OpenWater provenance watermark stack,
 built on top of the `oprow_step14_benchmarks` Version-0 reference SDK (sibling

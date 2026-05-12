@@ -216,8 +216,23 @@ def build_app(
         })
 
     @app.get("/jobs")
-    def list_jobs() -> dict[str, Any]:
-        return {"jobs": store.list_jobs()}
+    def list_jobs(request: Request) -> JSONResponse:
+        """List jobs. Gated behind OPENWATER_ADMIN_TOKEN; 403 if unset.
+
+        The default closed posture is intentional: a public listing would
+        leak every job id, which is enough to fetch the watermarked image
+        and verify report. See SECURITY.md.
+        """
+        expected = _admin_token()
+        if expected is None:
+            return JSONResponse(
+                {"detail": "listing disabled: set OPENWATER_ADMIN_TOKEN to enable"},
+                status_code=403,
+            )
+        supplied = request.headers.get("x-admin-token") or request.query_params.get("token")
+        if supplied != expected:
+            return JSONResponse({"detail": "forbidden"}, status_code=403)
+        return JSONResponse({"jobs": store.list_jobs()})
 
     @app.get("/jobs/{job_id}")
     def get_job(job_id: str) -> dict[str, Any]:

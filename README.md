@@ -1,6 +1,7 @@
 # openwater-mk — Internal Demo
 
 Licensed under the [Apache License 2.0](LICENSE).
+See [SECURITY.md](SECURITY.md) for the threat model and known gaps.
 
 
 Minimal runnable end-to-end demo of the OpenWater provenance watermark stack,
@@ -153,6 +154,22 @@ xdg-open "http://127.0.0.1:8000/jobs/$JOB/report.html"
 Interactive API docs at `/docs` (auto-generated). The service stores
 per-job artifacts under `OPENWATER_JOBS_ROOT` (default
 `/tmp/openwater-mk-jobs`).
+
+### Hardening defaults
+
+The service has **no authentication**, so it ships with these guardrails:
+
+- `openwater serve --host 0.0.0.0` (or any non-loopback) refuses to start
+  unless you pass `--unsafe-public`.
+- Request bodies above `OPENWATER_MAX_UPLOAD_BYTES` (default 1 MB) get
+  a `413`.
+- `GET /jobs` returns `403` unless `OPENWATER_ADMIN_TOKEN` is set; the
+  token is then required via either the `X-Admin-Token` header or
+  `?token=`.
+- `job_id` path parameters are validated against a strict 32-hex pattern.
+
+See [SECURITY.md](SECURITY.md) for the full threat model and the list of
+known gaps a real security audit should focus on.
 
 ## Cardano metadata anchoring (mock backend today)
 

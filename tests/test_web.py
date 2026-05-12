@@ -119,13 +119,36 @@ def test_anchor_then_get(client: TestClient) -> None:
     assert payload["metadata"]["40961"]["p"] == "openwater-cardano-anchor-v1"
 
 
-def test_jobs_listing(client: TestClient) -> None:
+def test_jobs_listing_forbidden_without_token(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default posture: no admin token configured -> /jobs returns 403."""
+    monkeypatch.delenv("OPENWATER_ADMIN_TOKEN", raising=False)
+    _new_job(client)
+    r = client.get("/jobs")
+    assert r.status_code == 403
+    assert "listing disabled" in r.json()["detail"]
+
+
+def test_jobs_listing_with_admin_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When OPENWATER_ADMIN_TOKEN is set, the right token returns the list."""
+    monkeypatch.setenv("OPENWATER_ADMIN_TOKEN", "s3cr3t")
+    app = build_app(jobs_root=tmp_path / "jobs")
+    client = TestClient(app)
     j1 = _new_job(client)
     j2 = _new_job(client)
-    r = client.get("/jobs")
+
+    # Wrong token -> 403
+    r = client.get("/jobs", params={"token": "wrong"})
+    assert r.status_code == 403
+
+    # Right token via query param -> 200
+    r = client.get("/jobs", params={"token": "s3cr3t"})
     assert r.status_code == 200
     ids = {entry["job_id"] for entry in r.json()["jobs"]}
     assert {j1, j2}.issubset(ids)
+
+    # Right token via header -> 200
+    r = client.get("/jobs", headers={"X-Admin-Token": "s3cr3t"})
+    assert r.status_code == 200
 
 
 def test_unknown_job_returns_404(client: TestClient) -> None:

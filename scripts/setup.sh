@@ -9,6 +9,7 @@ if [[ ! -d .venv ]]; then
   python3 -m venv .venv
 fi
 
+# shellcheck source=/dev/null
 . .venv/bin/activate
 pip install --upgrade pip setuptools wheel
 pip install -e ../oprow_step14_benchmarks

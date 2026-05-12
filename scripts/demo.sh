@@ -10,4 +10,4 @@ if [[ ! -d .venv ]]; then
 fi
 
 . .venv/bin/activate
-python demo_internal.py "$@"
+openwater demo "$@"

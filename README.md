@@ -35,36 +35,53 @@ can leave the locator recoverable but **must** fail the essence check.
 ## Quick start
 
 ```bash
-./scripts/setup.sh          # create .venv, install oprow editable from sibling
+./scripts/setup.sh          # create .venv, install oprow + openwater-mk editable
 ./scripts/demo.sh           # run end-to-end demo with synthetic image
 ls out/                     # watermarked.png, verify_report.json
 ```
 
-Or by hand:
+Or by hand, via the installed CLI:
 
 ```bash
-python -m venv .venv
 . .venv/bin/activate
-pip install -e ../oprow_step14_benchmarks
-python demo_internal.py
-python demo_internal.py --tamper                # negative case: content_mismatch
-python demo_internal.py --transform png_rgba    # benign re-encode: still verified
-python demo_internal.py --transform png_rgb     # alpha stripped: locator dies
-python demo_internal.py --transform jpeg_q82    # lossy: locator dies
+openwater demo                          # in-process one-shot
+openwater demo --tamper                 # negative case: content_mismatch
+openwater demo --transform png_rgba     # benign re-encode: still verified
+openwater demo --transform png_rgb      # alpha stripped: locator dies
+openwater demo --transform jpeg_q82     # lossy: locator dies
 ```
+
+For a cross-process round-trip (sign-and-embed in one shot, verify later
+against persisted artifacts):
+
+```bash
+openwater sign-embed --out /tmp/run1
+openwater inspect /tmp/run1/watermarked.png
+openwater verify /tmp/run1/watermarked.png \
+    --manifest-store /tmp/run1/manifests \
+    --key /tmp/run1/key.json
+```
+
+`demo_internal.py` still works as a shim for the demo subcommand only.
 
 ## Layout
 
 ```
 openwater-demo/
-├── demo_internal.py        # the demo script
+├── openwater_mk/           # installable package
+│   ├── __init__.py         # public re-exports
+│   ├── cli.py              # `openwater` console entrypoint
+│   ├── pipeline.py         # run_demo, sign_and_embed, verify, inspect_only
+│   └── transforms.py       # named TRANSFORMS map for the CLI --transform flag
+├── tests/
+│   ├── test_demo.py        # in-process pipeline (7 cases)
+│   └── test_cli.py         # CLI surface (6 cases)
+├── demo_internal.py        # legacy shim → `openwater demo`
 ├── scripts/
 │   ├── setup.sh            # venv + install
-│   └── demo.sh             # one-shot run
-├── out/                    # demo outputs
-│   ├── watermarked.png     # last healthy run
-│   ├── verify_report.json
-│   └── _tamper_sample/     # captured --tamper run for reference
+│   └── demo.sh             # `openwater demo` wrapper
+├── pyproject.toml          # openwater-mk package definition
+├── out/                    # demo outputs (last run + committed samples)
 └── README.md
 ```
 

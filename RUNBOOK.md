@@ -14,10 +14,11 @@ from the sibling directory, and runs its 85-case test suite as a smoke check.
 
 ## The demo
 
-### 1. Healthy path — sign, embed, verify
+### 1. Healthy path — sign, embed, verify (in-process)
 
 ```bash
 ./scripts/demo.sh
+# equivalent: openwater demo
 ```
 
 Expected last line:
@@ -81,6 +82,21 @@ implementation-time-estimates doc and is not on the path to first alpha.
 
 Should show 7 passing in under a second. These pin the security-boundary
 and robustness expectations so future changes cannot silently regress.
+
+### 4b. Cross-process workflow (closer to the V1 shape)
+
+```bash
+openwater sign-embed --out /tmp/run1
+openwater inspect /tmp/run1/watermarked.png      # locator only, no verify
+openwater verify /tmp/run1/watermarked.png \
+    --manifest-store /tmp/run1/manifests \
+    --key /tmp/run1/key.json
+```
+
+Talking point: this is the shape the real product will use. The manifest
+store will move from local `FileCAS` to Arweave/IPFS in the next phase;
+the trust-policy and key-resolver pieces will move from a local JSON
+envelope to a registry-backed lookup. The CLI surface stays the same.
 
 ### 5. Cleanup (optional)
 

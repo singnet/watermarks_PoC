@@ -5,8 +5,8 @@ See [SECURITY.md](SECURITY.md) for the threat model and known gaps.
 
 
 Minimal runnable end-to-end demo of the OpenWater provenance watermark stack,
-built on top of the `oprow_step14_benchmarks` Version-0 reference SDK (sibling
-directory).
+built on top of the `oprow` Version-0 reference SDK (vendored in-tree under
+`./oprow/`; see [vendor/oprow_docs/VENDORING.md](vendor/oprow_docs/VENDORING.md)).
 
 **Scope:** internal demo only. Image-only. Local CAS. Local Ed25519 keys.
 Reference (alpha-LSB) watermark carrier — **not** robust against
@@ -35,25 +35,15 @@ can leave the locator recoverable but **must** fail the essence check.
 
 ## Quick start
 
-### Prerequisite: oprow sibling checkout
-
-`openwater-mk` is glue over the upstream `oprow_step14_benchmarks` Version-0
-reference SDK. That SDK has no PyPI release and is **not** vendored in this
-repo, so you must place it as a sibling directory before running setup:
-
-```
-<parent>/
-├── openwater-demo/             # this repo
-└── oprow_step14_benchmarks/    # upstream Version-0 SDK (obtain separately)
-```
-
-`scripts/setup.sh` installs it editable via `pip install -e ../oprow_step14_benchmarks`.
-Setup will fail with a missing-path error if the sibling directory is absent.
+`openwater-mk` is glue over the upstream `oprow` Version-0 reference SDK,
+which is **vendored in this repo** under `./oprow/`. No sibling checkout
+needed. Source provenance for the vendored copy is documented in
+[vendor/oprow_docs/VENDORING.md](vendor/oprow_docs/VENDORING.md).
 
 ### Run
 
 ```bash
-./scripts/setup.sh          # create .venv, install oprow + openwater-mk editable
+./scripts/setup.sh          # create .venv, install demo (oprow vendored in-tree)
 ./scripts/demo.sh           # run end-to-end demo with synthetic image
 ls out/                     # watermarked.png, verify_report.json
 ```
@@ -99,7 +89,7 @@ are a localized swap-in once credentials are available.
 
 ```
 openwater-demo/
-├── openwater_mk/           # installable package
+├── openwater_mk/           # installable orchestration package
 │   ├── __init__.py         # public re-exports
 │   ├── cli.py              # `openwater` console entrypoint
 │   ├── pipeline.py         # run_demo, sign_and_embed, verify, anchor_*
@@ -107,14 +97,17 @@ openwater-demo/
 │   ├── cardano.py          # AnchorRecord, metadata-label 40961, MockCardanoBackend
 │   ├── transforms.py       # named TRANSFORMS map for the CLI --transform flag
 │   └── web/                # FastAPI service: server.py, jobs.py, templates.py
+├── oprow/                  # vendored Version-0 SDK (see vendor/oprow_docs/)
 ├── tests/
-│   ├── test_demo.py        # in-process pipeline (7 cases)
-│   └── test_cli.py         # CLI surface (6 cases)
+│   ├── test_demo.py        # in-process pipeline
+│   ├── test_cli.py         # CLI surface
+│   └── oprow_upstream/     # vendored oprow test suite (85 cases)
+├── vendor/oprow_docs/      # upstream README_STEP*.md + VENDORING.md
 ├── demo_internal.py        # legacy shim → `openwater demo`
 ├── scripts/
 │   ├── setup.sh            # venv + install
 │   └── demo.sh             # `openwater demo` wrapper
-├── pyproject.toml          # openwater-mk package definition
+├── pyproject.toml          # package definition (ships openwater_mk + oprow)
 ├── out/                    # demo outputs (last run + committed samples)
 └── README.md
 ```

@@ -98,7 +98,8 @@ Trust does **not** flow from a successful watermark extraction:
 ### Out of scope here (upstream-`oprow` audit territory)
 
 10. **CBOR canonicalization, signature scheme, PED-IMG-1 essence,
-    watermark profiles.** All implemented in `oprow_step14_benchmarks`.
+    watermark profiles.** All implemented in the vendored `oprow/`
+    package (see `vendor/oprow_docs/VENDORING.md` for source provenance).
     Bugs there would propagate through this codebase; an audit of
     openwater-mk should not re-verify those primitives but should
     confirm that *our* reconstructions (key envelope decode, anchor

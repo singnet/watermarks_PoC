@@ -13,9 +13,10 @@ authors = [
   { name = "Alejandro Corona", email = "alexander.krone@singularitynet.io" },
 ]
 dependencies = [
-  # oprow-step14 is consumed as an editable sibling install via:
-  #   pip install -e ../oprow_step14_benchmarks
-  # It is not listed here because it has no public PyPI release yet.
+  # oprow Version 0 SDK is vendored in-tree under ./oprow/.
+  # Source: oprow_step14_benchmarks-20260512T133940Z (see vendor/oprow_docs/VENDORING.md).
+  "cryptography>=41",
+  "numpy>=1.23",
   "Pillow>=10",
 ]
 
@@ -35,7 +36,7 @@ openwater = "openwater_mk.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["openwater_mk*"]
+include = ["openwater_mk*", "oprow*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

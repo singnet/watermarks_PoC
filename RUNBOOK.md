@@ -9,8 +9,9 @@ cd openwater-demo
 ./scripts/setup.sh
 ```
 
-This creates `.venv/`, installs the upstream oprow Version 0 SDK editable
-from the sibling directory, and runs its 85-case test suite as a smoke check.
+This creates `.venv/`, installs the demo (the oprow Version 0 SDK is
+vendored in-tree under `./oprow/`), and runs its 85-case test suite as a
+smoke check.
 
 ## The demo
 
@@ -191,11 +192,11 @@ rm -rf out/watermarked.png out/verify_report.json out/transformed_*
 | --- | --- |
 | Orchestration | `demo_internal.py` (`run_demo()` is the entry function) |
 | Tests | `tests/test_demo.py` |
-| Upstream oprow SDK | `../oprow_step14_benchmarks/` (editable install) |
+| Upstream oprow SDK | `./oprow/` (vendored; see `vendor/oprow_docs/VENDORING.md`) |
 | Sample outputs | `out/_tamper_sample/`, `out/_transform_samples/<name>/` |
 | Design doc | `../OpenWater_Comprehensive_Design.pdf` (74 pages) |
 | Effort estimates | `../OpenWater_Implementation_Time_Estimates_v0_1.pdf` |
-| Source code, oprow | sibling dir, treated as Version 0 reference scaffold |
+| Source code, oprow | in-tree `oprow/`, treated as Version 0 reference scaffold |
 
 ## Honest caveats to flag verbally
 

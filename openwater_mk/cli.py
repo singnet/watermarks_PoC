@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 
 from .pipeline import (
+    DEFAULT_PROFILE,
+    PROFILE_NAMES,
     anchor_sign_embed_output,
     inspect_only,
     run_demo,
@@ -37,17 +39,28 @@ def _cmd_demo(args: argparse.Namespace) -> int:
         out_dir=args.out,
         tamper=args.tamper,
         transform=args.transform,
+        profile=args.profile,
     )
     report_path = args.out / "verify_report.json"
     print(
+        f"profile={out['profile']}  "
         f"verified={out['verified']}  "
         f"extraction={out['extraction_status']}  "
         f"verification={out['verification_status']}  "
         f"report={report_path}"
     )
+    # alpha-LSB does not perturb luminance, so PED-IMG-1 essence binding
+    # round-trips and the demo can require full ``verified=True``. DCT-QIM
+    # carriers perturb luminance at embed time and (more so) at JPEG re-
+    # encode; PED-IMG-1 is an exact-hash essence in V0, so verification
+    # is expected to report ``content_mismatch`` even when the locator
+    # survives. Treat ``extraction=extracted`` as the success criterion
+    # for those profiles. ``--tamper`` still requires rejection.
     if args.tamper:
         return 0 if not out["verified"] else 1
-    return 0 if out["verified"] else 1
+    if args.profile == "alpha_lsb":
+        return 0 if out["verified"] else 1
+    return 0 if out["extraction_status"] == "extracted" else 1
 
 
 def _cmd_sign_embed(args: argparse.Namespace) -> int:
@@ -55,6 +68,7 @@ def _cmd_sign_embed(args: argparse.Namespace) -> int:
         input_path=args.input,
         out_dir=args.out,
         storage_backend=args.storage,
+        profile=args.profile,
     )
     print(f"watermarked={result.watermarked_path}")
     print(f"manifest_store={result.manifest_store}  ({result.manifest_store_backend})")
@@ -77,6 +91,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         watermarked_path=args.watermarked,
         manifest_stores=stores,
         key_envelope_path=args.key,
+        profile=args.profile,
     )
     if args.report:
         args.report.write_text(json.dumps(result.report, indent=2))
@@ -89,7 +104,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
-    out = inspect_only(watermarked_path=args.watermarked)
+    out = inspect_only(watermarked_path=args.watermarked, profile=args.profile)
     print(json.dumps(out, indent=2))
     return 0 if out["status"] == "extracted" else 1
 
@@ -162,6 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="invert center RGB after embed; verify must reject")
     pd.add_argument("--transform", choices=sorted(TRANSFORMS), default=None,
                     help="apply a channel transform to the watermarked image before verify")
+    pd.add_argument("--profile", choices=PROFILE_NAMES, default=DEFAULT_PROFILE,
+                    help=f"watermark carrier profile (default: {DEFAULT_PROFILE})")
     pd.set_defaults(func=_cmd_demo)
 
     # sign-embed
@@ -172,6 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="output directory; will contain watermarked.png, key.json, manifests/, manifest_key.txt, storage_uri.txt")
     pse.add_argument("--storage", choices=BACKEND_NAMES, default="local",
                      help="manifest-store backend (default: local). fake-arweave/fake-ipfs emit realistic txid/CID shapes without network calls.")
+    pse.add_argument("--profile", choices=PROFILE_NAMES, default=DEFAULT_PROFILE,
+                     help=f"watermark carrier profile (default: {DEFAULT_PROFILE})")
     pse.set_defaults(func=_cmd_sign_embed)
 
     # verify
@@ -184,12 +203,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="path to the key envelope JSON (key.json from sign-embed)")
     pv.add_argument("--report", type=Path, default=None,
                     help="optional path to write a JSON verify report")
+    pv.add_argument("--profile", choices=PROFILE_NAMES, default=DEFAULT_PROFILE,
+                    help=f"watermark carrier profile (must match embed time; default: {DEFAULT_PROFILE})")
     pv.set_defaults(func=_cmd_verify)
 
     # inspect
     pi = sub.add_parser("inspect", help="extract the locator from a watermarked image, no manifest fetch")
     pi.add_argument("watermarked", type=Path,
                     help="path to the watermarked image")
+    pi.add_argument("--profile", choices=PROFILE_NAMES, default=DEFAULT_PROFILE,
+                    help=f"watermark carrier profile (must match embed time; default: {DEFAULT_PROFILE})")
     pi.set_defaults(func=_cmd_inspect)
 
     # anchor

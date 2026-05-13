@@ -17,11 +17,14 @@ from .cardano import (
     verify_anchor,
 )
 from .pipeline import (
+    DEFAULT_PROFILE,
+    PROFILE_NAMES,
     SignEmbedResult,
     VerifyResult,
     anchor_sign_embed_output,
     embed_only,
     inspect_only,
+    register_profile,
     run_demo,
     sign_and_embed,
     verify,

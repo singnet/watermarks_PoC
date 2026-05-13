@@ -28,6 +28,7 @@ from oprow import (
     AlphaLSBImageWatermarkProfile,
     Artifact,
     CASResolver,
+    DCTQIMImageWatermarkProfile,
     GenerationClaim,
     ManifestCore,
     ManifestKey,
@@ -36,6 +37,7 @@ from oprow import (
     OProWSigner,
     PointerMode,
     TrustPolicyStub,
+    WatermarkProfile,
     WatermarkStrength,
     build_artifact_binding,
     create_signed_manifest,
@@ -74,6 +76,59 @@ from .storage import (
     store_from_spec,
 )
 from .transforms import TRANSFORMS
+
+
+# ---------------------------------------------------------------------------
+# Watermark profile selection
+# ---------------------------------------------------------------------------
+
+
+# Mapping of CLI-facing profile names to constructors. Tier 2's
+# "dct_qim_robust" profile is registered from openwater_mk.watermark_robust
+# at import time so this dict stays the single source of truth.
+_PROFILE_FACTORIES: dict[str, Any] = {
+    "alpha_lsb": AlphaLSBImageWatermarkProfile,
+    "dct_qim":   DCTQIMImageWatermarkProfile,
+}
+
+DEFAULT_PROFILE = "dct_qim"
+PROFILE_NAMES: tuple[str, ...] = ("alpha_lsb", "dct_qim", "dct_qim_robust")
+
+
+def register_profile(name: str, factory: Any) -> None:
+    """Register a watermark profile constructor under ``name``.
+
+    Used by openwater_mk.watermark_robust to plug its profile in without a
+    circular import.
+    """
+    _PROFILE_FACTORIES[name] = factory
+
+
+def _resolve_profile(name: str) -> WatermarkProfile:
+    try:
+        return _PROFILE_FACTORIES[name]()
+    except KeyError as exc:
+        raise ValueError(
+            f"unknown profile {name!r}; expected one of {sorted(_PROFILE_FACTORIES)}"
+        ) from exc
+
+
+def _default_strength(name: str, repetitions: int) -> WatermarkStrength:
+    """Pick sensible per-profile defaults.
+
+    Alpha-LSB has plenty of capacity (one bit per pixel) so a 3x repetition
+    code is cheap. DCT-QIM only has one bit per 8x8 block; a 192x192 demo
+    image is just 576 blocks, which is below the 744-bit framed payload at
+    reps=3, so we run reps=1 there and lean on a larger qim_delta + (for
+    the robust variant) spectral spreading.
+    """
+    if name == "alpha_lsb":
+        return WatermarkStrength(name="demo-alpha-lsb", repetitions=repetitions)
+    if name == "dct_qim":
+        return WatermarkStrength(name="demo-dct-qim", repetitions=1, qim_delta=64.0)
+    if name == "dct_qim_robust":
+        return WatermarkStrength(name="demo-dct-qim-robust", repetitions=1, qim_delta=56.0)
+    raise ValueError(f"unknown profile {name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +257,7 @@ def sign_and_embed(
     pointer_mode: PointerMode = PointerMode.FULL160,
     model_id: str = "openwater-demo",
     repetitions: int = 3,
+    profile: str = DEFAULT_PROFILE,
 ) -> SignEmbedResult:
     """Sign a manifest, embed the locator, persist key + manifest + image.
 
@@ -215,14 +271,16 @@ def sign_and_embed(
 
     ``storage_backend`` may be ``"local"`` (default), ``"fake-arweave"``, or
     ``"fake-ipfs"``. See :mod:`openwater_mk.storage`.
+
+    ``profile`` selects the watermark carrier; see ``PROFILE_NAMES``.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
 
     artifact = _load_artifact(input_path)
     key = generate_ed25519_keypair(roles=[SignatureRole.TOOL])
-    profile = AlphaLSBImageWatermarkProfile()
+    wm_profile = _resolve_profile(profile)
 
-    binding = build_artifact_binding(artifact, wm_alg_id=profile.alg_id)
+    binding = build_artifact_binding(artifact, wm_alg_id=wm_profile.alg_id)
     core = ManifestCore(
         version=1,
         artifact=binding,
@@ -231,11 +289,11 @@ def sign_and_embed(
     )
     signed = create_signed_manifest(core, [OProWSigner(key, SignatureRole.TOOL)])
 
-    strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=repetitions)
+    strength = _default_strength(profile, repetitions)
     embedded = embed_manifest_locator(
         artifact, signed,
         pointer_mode=pointer_mode,
-        watermark_profile=profile,
+        watermark_profile=wm_profile,
         strength=strength,
     )
 
@@ -274,6 +332,7 @@ def embed_only(
     storage_backend: str | None = None,
     pointer_mode: PointerMode = PointerMode.FULL160,
     repetitions: int = 3,
+    profile: str = DEFAULT_PROFILE,
 ) -> Path:
     """Embed a pre-existing signed manifest's locator into a new artifact.
 
@@ -294,12 +353,12 @@ def embed_only(
     signed = signed_manifest_from_bytes(data)
 
     artifact = _load_artifact(input_path)
-    profile = AlphaLSBImageWatermarkProfile()
-    strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=repetitions)
+    wm_profile = _resolve_profile(profile)
+    strength = _default_strength(profile, repetitions)
     embedded = embed_manifest_locator(
         artifact, signed,
         pointer_mode=pointer_mode,
-        watermark_profile=profile,
+        watermark_profile=wm_profile,
         strength=strength,
     )
     out = out_dir / "watermarked.png"
@@ -313,6 +372,7 @@ def verify(
     manifest_stores: list[Path | tuple[str, Path]] | Path,
     key_envelope_path: Path,
     accepted_roles: tuple[str, ...] = ("tool",),
+    profile: str = DEFAULT_PROFILE,
 ) -> VerifyResult:
     """Verify a watermarked PNG against one or more persistent manifest stores.
 
@@ -321,6 +381,9 @@ def verify(
     - a single ``Path`` (backend auto-detected),
     - a list of ``Path`` (each backend auto-detected),
     - a list of ``(backend_name, Path)`` tuples for explicit control.
+
+    ``profile`` selects the watermark carrier used at extraction; must match
+    the profile used at embed time.
     """
     media_type = "image/jpeg" if watermarked_path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     artifact = Artifact.from_bytes(watermarked_path.read_bytes(), media_type=media_type)
@@ -328,8 +391,8 @@ def verify(
     envelope = json.loads(key_envelope_path.read_text())
     public = _public_from_envelope(envelope)
 
-    profile = AlphaLSBImageWatermarkProfile()
-    strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=3)
+    wm_profile = _resolve_profile(profile)
+    strength = _default_strength(profile, repetitions=3)
 
     if isinstance(manifest_stores, (str, Path)):
         items: list[Path | tuple[str, Path]] = [Path(manifest_stores)]
@@ -350,7 +413,7 @@ def verify(
 
     report = verify_artifact_from_watermark(
         artifact,
-        watermark_profile=profile,
+        watermark_profile=wm_profile,
         strength=strength,
         resolver=CASResolver(stores),
         key_resolver=MemoryKeyRegistry.from_public_keys([public]),
@@ -456,18 +519,19 @@ def hashlib_sha256_of_hex(hex_str: str) -> bytes:
     return hashlib.sha256(hex_str.encode("ascii")).digest()
 
 
-def inspect_only(*, watermarked_path: Path) -> dict[str, Any]:
+def inspect_only(*, watermarked_path: Path, profile: str = DEFAULT_PROFILE) -> dict[str, Any]:
     """Extract the locator from a watermarked image without verifying.
 
     Useful for debugging carriers and for showing that locator recovery
-    alone is not proof of provenance.
+    alone is not proof of provenance. ``profile`` must match the profile
+    used at embed time.
     """
     media_type = "image/jpeg" if watermarked_path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     artifact = Artifact.from_bytes(watermarked_path.read_bytes(), media_type=media_type)
-    profile = AlphaLSBImageWatermarkProfile()
-    strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=3)
+    wm_profile = _resolve_profile(profile)
+    strength = _default_strength(profile, repetitions=3)
     result = extract_locator(
-        artifact, watermark_profile=profile, strength=strength,
+        artifact, watermark_profile=wm_profile, strength=strength,
     )
     return {
         "watermarked_path": str(watermarked_path),
@@ -487,6 +551,7 @@ def run_demo(
     out_dir: Path = Path("out"),
     tamper: bool = False,
     transform: str | None = None,
+    profile: str = DEFAULT_PROFILE,
 ) -> dict[str, Any]:
     """In-process one-shot pipeline used by ``openwater demo`` and tests.
 
@@ -499,9 +564,9 @@ def run_demo(
 
     artifact = _load_artifact(input_path)
     key = generate_ed25519_keypair(roles=[SignatureRole.TOOL])
-    profile = AlphaLSBImageWatermarkProfile()
+    wm_profile = _resolve_profile(profile)
 
-    binding = build_artifact_binding(artifact, wm_alg_id=profile.alg_id)
+    binding = build_artifact_binding(artifact, wm_alg_id=wm_profile.alg_id)
     core = ManifestCore(
         version=1,
         artifact=binding,
@@ -510,11 +575,11 @@ def run_demo(
     )
     signed = create_signed_manifest(core, [OProWSigner(key, SignatureRole.TOOL)])
 
-    strength = WatermarkStrength(name="demo-alpha-lsb", repetitions=3)
+    strength = _default_strength(profile, repetitions=3)
     embedded = embed_manifest_locator(
         artifact, signed,
         pointer_mode=PointerMode.FULL160,
-        watermark_profile=profile,
+        watermark_profile=wm_profile,
         strength=strength,
     )
 
@@ -540,7 +605,7 @@ def run_demo(
     cas.put_manifest(signed)
     report = verify_artifact_from_watermark(
         verify_input,
-        watermark_profile=profile,
+        watermark_profile=wm_profile,
         strength=strength,
         resolver=CASResolver([cas]),
         key_resolver=MemoryKeyRegistry.from_public_keys([key.public]),
@@ -554,12 +619,13 @@ def run_demo(
         "input": str(input_path) if input_path else "synthetic",
         "tampered": tamper,
         "transform": transform,
+        "profile": profile,
         "watermarked_path": str(watermarked_path),
         "tampered_path": str(tampered_path) if tampered_path else None,
         "transformed_path": str(transformed_path) if transformed_path else None,
         "key_id": str(key.kid),
         "pointer_mode": PointerMode.FULL160.value,
-        "watermark_alg_id": profile.alg_id,
+        "watermark_alg_id": wm_profile.alg_id,
         "extraction_status": report.extraction.status.value,
         "locator_mode": (
             report.extraction.locator.mode.value

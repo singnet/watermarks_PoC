@@ -41,10 +41,22 @@ from .storage import (
 )
 from .transforms import TRANSFORMS
 
+# Side-effect import: registers RobustDCTQIMImageWatermarkProfile under
+# ``"dct_qim_robust"`` in pipeline._PROFILE_FACTORIES so the CLI option
+# resolves without a circular import.
+from .watermark_robust import (
+    IMG_DCT_QIM_ROBUST_ALG_ID,
+    IMG_DCT_QIM_ROBUST_NUMERIC_ID,
+    RobustDCTQIMImageWatermarkProfile,
+)
+
 __all__ = [
     "SignEmbedResult",
     "VerifyResult",
     "TRANSFORMS",
+    "RobustDCTQIMImageWatermarkProfile",
+    "IMG_DCT_QIM_ROBUST_ALG_ID",
+    "IMG_DCT_QIM_ROBUST_NUMERIC_ID",
     "BACKEND_NAMES",
     "ManifestStore",
     "LocalFileStore",

@@ -1,0 +1,28 @@
+{
+  "input": "synthetic",
+  "tampered": false,
+  "transform": "resize_0_9",
+  "profile": "dct_qim",
+  "watermarked_path": "out/_transform_samples/dct_qim/resize_0_9/watermarked.png",
+  "tampered_path": null,
+  "transformed_path": "out/_transform_samples/dct_qim/resize_0_9/transformed_resize_0_9.png",
+  "key_id": "oprow-key:Ed25519:D2GPmOp4VRKdtjzluKE8ENLgOA2__B2Y7s41ySLF4aQ",
+  "pointer_mode": "full160",
+  "watermark_alg_id": "IMG-DCT-QIM-REF-1",
+  "extraction_status": "no_watermark",
+  "locator_mode": null,
+  "verification_status": "no_watermark",
+  "verified": false,
+  "embed_diagnostics": {
+    "carrier": "dct_qim",
+    "capacity_bits": 576,
+    "used_carrier_bits": 248,
+    "payload_bits": 200,
+    "repetitions": 1,
+    "qim_delta": 64.0,
+    "coefficient": [
+      3,
+      2
+    ]
+  }
+}

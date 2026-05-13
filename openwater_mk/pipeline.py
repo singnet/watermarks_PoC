@@ -559,18 +559,27 @@ def run_demo(
     tamper: bool = False,
     transform: str | None = None,
     profile: str = DEFAULT_PROFILE,
+    created_at: datetime | None = None,
+    key: PrivateKeyRecord | None = None,
 ) -> dict[str, Any]:
     """In-process one-shot pipeline used by ``openwater demo`` and tests.
 
     See :func:`sign_and_embed` + :func:`verify` for the cross-process
     equivalent that goes through disk.
+
+    ``created_at`` and ``key`` let tests pin the manifest timestamp and
+    the Ed25519 keypair so the derived ManifestKey (and therefore the
+    DCT-QIM carrier bit pattern) is deterministic across runs.
+    Production code leaves them at ``None`` (wall-clock timestamp,
+    freshly-generated key).
     """
     if tamper and transform:
         raise ValueError("tamper and transform are mutually exclusive")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     artifact = _load_artifact(input_path)
-    key = generate_ed25519_keypair(roles=[SignatureRole.TOOL])
+    if key is None:
+        key = generate_ed25519_keypair(roles=[SignatureRole.TOOL])
     wm_profile = _resolve_profile(profile)
 
     binding = build_artifact_binding(artifact, wm_alg_id=wm_profile.alg_id)
@@ -578,7 +587,7 @@ def run_demo(
         version=1,
         artifact=binding,
         claims=[GenerationClaim(model_id="openwater-demo")],
-        created_at=datetime.now(timezone.utc),
+        created_at=created_at or datetime.now(timezone.utc),
     )
     signed = create_signed_manifest(core, [OProWSigner(key, SignatureRole.TOOL)])
 

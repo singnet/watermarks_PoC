@@ -1,0 +1,47 @@
+{
+  "input": "synthetic",
+  "tampered": false,
+  "transform": null,
+  "profile": "dct_qim_robust",
+  "watermarked_path": "out/_transform_samples/dct_qim_robust/none/watermarked.png",
+  "tampered_path": null,
+  "transformed_path": null,
+  "key_id": "oprow-key:Ed25519:D2GPmOp4VRKdtjzluKE8ENLgOA2__B2Y7s41ySLF4aQ",
+  "pointer_mode": "full160",
+  "watermark_alg_id": "IMG-DCT-QIM-ROBUST-1",
+  "extraction_status": "extracted",
+  "locator_mode": "full160",
+  "verification_status": "content_mismatch",
+  "verified": false,
+  "embed_diagnostics": {
+    "carrier": "dct_qim_robust",
+    "capacity_bits": 576,
+    "used_carrier_bits": 248,
+    "payload_bits": 200,
+    "repetitions": 1,
+    "qim_delta": 64.0,
+    "coefficients": [
+      [
+        2,
+        1
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        3,
+        1
+      ],
+      [
+        1,
+        3
+      ]
+    ],
+    "coefficients_per_bit": 5
+  }
+}

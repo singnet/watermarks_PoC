@@ -35,6 +35,23 @@ can leave the locator recoverable but **must** fail the essence check.
 
 ## Quick start
 
+### Prerequisite: oprow sibling checkout
+
+`openwater-mk` is glue over the upstream `oprow_step14_benchmarks` Version-0
+reference SDK. That SDK has no PyPI release and is **not** vendored in this
+repo, so you must place it as a sibling directory before running setup:
+
+```
+<parent>/
+├── openwater-demo/             # this repo
+└── oprow_step14_benchmarks/    # upstream Version-0 SDK (obtain separately)
+```
+
+`scripts/setup.sh` installs it editable via `pip install -e ../oprow_step14_benchmarks`.
+Setup will fail with a missing-path error if the sibling directory is absent.
+
+### Run
+
 ```bash
 ./scripts/setup.sh          # create .venv, install oprow + openwater-mk editable
 ./scripts/demo.sh           # run end-to-end demo with synthetic image

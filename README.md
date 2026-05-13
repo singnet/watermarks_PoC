@@ -9,9 +9,12 @@ built on top of the `oprow` Version-0 reference SDK (vendored in-tree under
 `./oprow/`; see [vendor/oprow_docs/VENDORING.md](vendor/oprow_docs/VENDORING.md)).
 
 **Scope:** internal demo only. Image-only. Local CAS. Local Ed25519 keys.
-Reference (alpha-LSB) watermark carrier — **not** robust against
-JPEG/social-media recompression. No Arweave/IPFS, no Cardano anchor, no
-Rholang, no Hyperon. Those land in V1+ per the OpenWater roadmap.
+Three reference watermark carriers selectable via `--profile`:
+`alpha_lsb` (lossless PNG only), `dct_qim` (default; JPEG-robust
+locator), `dct_qim_robust` (5-coefficient spectral spread, same JPEG
+profile as the reference on the demo corpus, structural template for
+production tuning). No Arweave/IPFS, no Cardano anchor, no Rholang, no
+Hyperon. Those land in V1+ per the OpenWater roadmap.
 
 ## What this shows
 
@@ -56,11 +59,14 @@ Or by hand, via the installed CLI:
 
 ```bash
 . .venv/bin/activate
-openwater demo                          # in-process one-shot
-openwater demo --tamper                 # negative case: content_mismatch
-openwater demo --transform png_rgba     # benign re-encode: still verified
-openwater demo --transform png_rgb      # alpha stripped: locator dies
-openwater demo --transform jpeg_q82     # lossy: locator dies
+openwater demo                                       # default profile (dct_qim)
+openwater demo --profile alpha_lsb                   # full essence-verify path
+openwater demo --profile alpha_lsb --tamper          # negative case: content_mismatch
+openwater demo --profile alpha_lsb --transform png_rgba  # benign re-encode: verified
+openwater demo --profile alpha_lsb --transform png_rgb   # alpha stripped: locator dies
+openwater demo --profile alpha_lsb --transform jpeg_q82  # lossy: locator dies
+openwater demo --profile dct_qim --transform jpeg_q60    # JPEG-robust: locator survives
+openwater demo --profile dct_qim_robust --transform jpeg_cascade_85_70  # spectral spread
 ```
 
 For a cross-process round-trip (sign-and-embed in one shot, verify later
@@ -135,21 +141,65 @@ This is the watermark/copy-paste resistance story from §21.1–21.2 of the
 OpenWater design doc: extracting a locator is **not** proof of provenance —
 the manifest's essence binding must match the artifact's content.
 
-## Channel robustness (alpha-LSB reference carrier only)
+## Watermark profiles and channel robustness
 
-The reference watermark profile is alpha-LSB. It is deliberately fragile:
-it shows the orchestration end-to-end but is **not** a production carrier.
-`--transform` exercises three points on the channel-robustness spectrum:
+Three carriers are exposed via `--profile`. They share the same payload
+codec, ECC framing, and pointer modes; only the per-block carrier
+algorithm differs.
 
-| Transform | Expected extraction | Expected verification | Notes |
+| Profile | Carrier | qim_delta | What it demonstrates |
 | --- | --- | --- | --- |
-| `png_rgba` | `extracted` | `verified` | PNG re-encode preserving alpha: locator survives |
-| `png_rgb` | `no_watermark` | `no_watermark` | PNG re-encode stripping alpha: carrier destroyed |
-| `jpeg_q82` | `no_watermark` | `no_watermark` | Lossy JPEG: alpha gone, RGB also perturbed |
+| `alpha_lsb` | PNG alpha channel LSBs | n/a | Full essence-binding round-trip. The watermark does not touch luminance so PED-IMG-1 verifies. **Dies** the moment a channel strips alpha (JPEG, RGB re-save). |
+| `dct_qim` (default) | One mid-frequency DCT coefficient `(3,2)` per 8x8 Y block | 64 | JPEG-robust locator survival. Locator round-trips PNG-RGB, JPEG q60+, and one-shot social cascades. **Essence binding fails by V0 design** — PED-IMG-1 is exact-hash and any luminance carrier perturbs Y. |
+| `dct_qim_robust` | Five mid-frequency DCT coefficients per 8x8 block + majority vote | 64 | Spectral-spread template. On this corpus it tracks `dct_qim` exactly (JPEG noise is correlated across coefficients of the same block). It is shipped as the **structure** for V1 production tuning, not as a current robustness win. |
 
-Captured runs under `out/_transform_samples/<name>/`. Production hostile-
-channel watermarking is the V8 line item in the implementation-time-estimates
-doc and is not on the V1 path.
+The CLI exit code reflects each profile's success criterion:
+
+- `--profile alpha_lsb`: `rc=0` iff `verified=True` (full extraction +
+  essence binding + signature + trust).
+- `--profile dct_qim*`: `rc=0` iff `extraction_status=="extracted"` (the
+  locator survived the channel). The verifier will still report
+  `content_mismatch` because the embed perturbs luminance and PED-IMG-1
+  is exact-hash; that's a documented V0 limitation, not a regression.
+
+### Empirical matrix on the synthetic 192×192 corpus
+
+Pinned by `tests/test_watermark_robust.py` with `FIXED_CREATED_AT` and
+`FIXED_KEY` to keep the JPEG-knife-edge cells deterministic. ✓ =
+`extracted`, ✗ = `no_watermark`. The `dct_qim*` rows never reach
+`verified=True` for the V0 reason above; they're only measuring locator
+survival.
+
+| Transform | alpha_lsb | dct_qim | dct_qim_robust |
+| --- | --- | --- | --- |
+| (none) | ✓ verified | ✓ | ✓ |
+| `png_rgba` | ✓ verified | ✓ | ✓ |
+| `png_rgb` | ✗ | ✓ | ✓ |
+| `jpeg_q82` | ✗ | ✓ | ✓ |
+| `jpeg_q70` | ✗ | ✓ | ✓ |
+| `jpeg_q60` | ✗ | ✓ | ✓ |
+| `jpeg_cascade_85_70` | ✗ | ✓ | ✓ |
+| `social_pipeline` | ✗ | ✗ | ✗ |
+| `resize_0_9` | ✗ | ✗ | ✗ |
+
+The bottom two rows fail because the V0 SDK has no synchronization
+recovery — any resize / crop / rotation breaks the deterministic 8x8
+block grid the QIM coefficients live on. Geometry-tolerant sync (cyclic
+templates, autocorrelation peaks) is Tier 2.5 work and a V1 production
+prerequisite.
+
+Captured runs for every cell live under
+`out/_transform_samples/<profile>/<transform>/` (watermarked PNG,
+transformed image, JSON verify report).
+
+### Security boundary stays unchanged
+
+Recovering a locator is **not** proof of authenticity. The OpenWater
+verifier requires manifest signature + essence binding + local trust
+policy regardless of which carrier was used. The `--tamper` flag on the
+`alpha_lsb` profile demonstrates this explicitly: the locator survives
+the tamper, but `verification_status` becomes `content_mismatch` and the
+demo returns rc=0 *because* it correctly rejected the tampered artifact.
 
 ## openwater.mk web service
 
@@ -214,5 +264,7 @@ openwater verify-anchor /tmp/run-ar-anchor    # confirms tx, recomputes hashes, 
 - C2PA SDK / JUMBF packaging
 - Rholang trust-machine contracts
 - Hyperon/MeTTa policy evaluation
-- Robust DCT/QIM watermark (alpha-LSB survives PNG round-trip only — fails
-  JPEG, social-media re-encode, screenshots)
+- Perceptual essence with tolerance threshold (PED-IMG-1 is exact-hash
+  today; that's what blocks DCT-QIM from round-tripping `verified=True`)
+- Synchronization-robust DCT/QIM watermark (current carriers die under
+  resize, crop, rotation, social re-host)

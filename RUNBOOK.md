@@ -62,30 +62,52 @@ correctly rejected. This is what kills copy/paste attacks: the attacker
 can move the watermark, but the essence binding does not move with it.
 See §21.1–21.2 of the OpenWater design doc.
 
-### 3. Channel robustness — what alpha-LSB survives
+### 3. Channel robustness — picking a profile
+
+The CLI takes `--profile {alpha_lsb,dct_qim,dct_qim_robust}`. Defaults
+to `dct_qim`. Quick guide:
+
+| When | Profile | Why |
+| --- | --- | --- |
+| You want to demo the full essence-binding round-trip | `alpha_lsb` | The watermark lives in the alpha channel so PED-IMG-1 verifies exactly. |
+| You want to demo locator survival under JPEG / social re-encode | `dct_qim` | Mid-frequency Y coefficient, well above the libjpeg quant grid at q60. |
+| You want the structural template for V1 production carriers | `dct_qim_robust` | 5-coefficient spectral spread + majority vote. Same JPEG profile as `dct_qim` on the synthetic corpus; combine with spatial repetition + sync template for real-world robustness. |
 
 ```bash
-./scripts/demo.sh --transform png_rgba   # PNG re-encode keeping alpha  -> verified
-./scripts/demo.sh --transform png_rgb    # PNG re-encode stripping alpha -> no_watermark
-./scripts/demo.sh --transform jpeg_q82   # JPEG q=82                      -> no_watermark
+./scripts/demo.sh --profile alpha_lsb --transform png_rgba   # -> verified
+./scripts/demo.sh --profile alpha_lsb --transform png_rgb    # -> no_watermark
+./scripts/demo.sh --profile alpha_lsb --transform jpeg_q82   # -> no_watermark
+./scripts/demo.sh --profile dct_qim   --transform jpeg_q60   # -> extracted (content_mismatch)
+./scripts/demo.sh --profile dct_qim   --transform jpeg_cascade_85_70  # -> extracted
+./scripts/demo.sh --profile dct_qim_robust --transform jpeg_q60      # -> extracted
 ```
 
-Talking point: the alpha-LSB carrier is the **reference / profile** carrier.
-Real social-media channels recompress to JPEG and strip alpha — the
-locator does not survive. A production deployment uses a DCT/QIM carrier
-or a licensed library; that work is the V8 line item in the
-implementation-time-estimates doc and is not on the path to first alpha.
+Two talking points to lead with:
+
+1. **alpha-LSB is fragile by design.** It's the reference carrier; real
+   social channels recompress to JPEG and strip alpha. The dct_qim
+   profile is what survives that.
+2. **DCT-QIM verifies `content_mismatch`, not `verified`.** That's
+   expected V0 behaviour: PED-IMG-1 is exact-hash and any luminance
+   carrier perturbs Y. The CLI's success criterion for DCT-QIM is
+   *locator extraction*, not full essence verification. A perceptual
+   essence with tolerance is V1+ work, captured in the README's
+   "Defer to V1+" list.
+
+See `out/_transform_samples/<profile>/<transform>/` for committed runs
+of every (profile × transform) cell.
 
 ### 4. Tests as living acceptance criteria
 
 ```bash
-.venv/bin/python -m pytest tests/test_demo.py tests/test_cli.py tests/test_storage.py tests/test_cardano.py -v
+.venv/bin/python -m pytest tests/test_demo.py tests/test_cli.py tests/test_storage.py tests/test_cardano.py tests/test_watermark_robust.py -v
 .venv/bin/python -m pytest tests/test_web.py -v
 .venv/bin/python -m pytest tests/oprow_upstream -v
 ```
 
-The first command is the core local acceptance suite; on the current main
-branch it should show 38 passing. The web suite exercises FastAPI via
+The first command is the core local acceptance suite; on this branch it
+should show the CLI, storage, Cardano, and watermark robustness tests
+passing. The web suite exercises FastAPI via
 `TestClient` and requires the supported Python/dependency range from
 `pyproject.toml`. The upstream suite verifies the vendored OProW reference
 SDK behavior.
@@ -206,8 +228,11 @@ rm -rf out/watermarked.png out/verify_report.json out/transformed_*
 
 ## Honest caveats to flag verbally
 
-1. **Reference-grade watermark.** Alpha-LSB is fragile by design. It exists
-   so the rest of the stack can be demoed; production carriers are V8 work.
+1. **Reference-grade watermarks.** Three carriers ship today; none are
+   production-grade. `alpha_lsb` dies on JPEG. `dct_qim` survives JPEG
+   but cannot round-trip PED-IMG-1 essence in V0 because the essence is
+   exact-hash and the carrier perturbs Y. `dct_qim_robust` is a
+   structural template, not a current robustness win.
 2. **No real chain anchor yet.** The demo has local fake Arweave/IPFS
    stores and a mock Cardano ledger. Real uploads and transactions are
    still future integration work.

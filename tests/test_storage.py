@@ -88,8 +88,12 @@ def test_detect_backend(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("backend", ["local", "fake-arweave", "fake-ipfs"])
 def test_sign_embed_then_verify_with_backend(tmp_path: Path, backend: str) -> None:
+    """Storage-backend round-trip uses ``alpha_lsb`` so the full
+    extraction+essence verification path is exercised. DCT-QIM profiles
+    intentionally fail PED-IMG-1 binding under V0 exact-hash essence
+    (see test_demo.py)."""
     workdir = tmp_path / backend.replace("-", "_")
-    rc = cli_main(["sign-embed", "--storage", backend, "--out", str(workdir)])
+    rc = cli_main(["sign-embed", "--profile", "alpha_lsb", "--storage", backend, "--out", str(workdir)])
     assert rc == 0
     assert (workdir / "storage_uri.txt").exists()
     uri = (workdir / "storage_uri.txt").read_text().strip()
@@ -103,6 +107,7 @@ def test_sign_embed_then_verify_with_backend(tmp_path: Path, backend: str) -> No
     rc = cli_main([
         "verify",
         str(workdir / "watermarked.png"),
+        "--profile", "alpha_lsb",
         "--manifest-store", str(workdir / "manifests"),
         "--key", str(workdir / "key.json"),
     ])
@@ -117,7 +122,7 @@ def test_verify_walks_multiple_stores(tmp_path: Path) -> None:
     """
     # Sign+embed with fake-arweave only.
     workdir = tmp_path / "primary"
-    cli_main(["sign-embed", "--storage", "fake-arweave", "--out", str(workdir)])
+    cli_main(["sign-embed", "--profile", "alpha_lsb", "--storage", "fake-arweave", "--out", str(workdir)])
 
     # An empty IPFS store first, then the populated Arweave store.
     empty_ipfs = tmp_path / "empty_ipfs"
@@ -126,6 +131,7 @@ def test_verify_walks_multiple_stores(tmp_path: Path) -> None:
     rc = cli_main([
         "verify",
         str(workdir / "watermarked.png"),
+        "--profile", "alpha_lsb",
         "--manifest-store", str(empty_ipfs),
         "--manifest-store", str(workdir / "manifests"),
         "--key", str(workdir / "key.json"),

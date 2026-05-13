@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..pipeline import (
+    PROFILE_NAMES,
     anchor_sign_embed_output,
     sign_and_embed,
     verify,
@@ -47,6 +48,12 @@ from .templates import render_index, render_verify_report_html
 
 DEFAULT_MAX_UPLOAD_BYTES = 1 * 1024 * 1024  # 1 MB
 JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+# The web service defaults to ``alpha_lsb`` so small uploads (under ~64x64)
+# fit the per-block capacity of the DCT/QIM family and so a self-verify
+# round-trip can report ``verified=True``. Callers wanting JPEG-robust
+# locator survival pass ``profile=dct_qim`` (or ``dct_qim_robust``)
+# explicitly via the ``profile`` form field.
+WEB_DEFAULT_PROFILE = "alpha_lsb"
 
 
 def _max_upload_bytes() -> int:
@@ -130,14 +137,36 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
             raise
 
 
-def _verify_response(job_id: str, image_path: Path, manifest_store: Path, key_path: Path) -> dict[str, Any]:
+def _job_profile(sign_embed_dir: Path) -> str:
+    """Return the profile used when this job was signed/embedded.
+
+    Falls back to ``WEB_DEFAULT_PROFILE`` for legacy jobs that predate the
+    profile.txt sidecar, so older jobs still verify.
+    """
+    pf = sign_embed_dir / "profile.txt"
+    if pf.exists():
+        candidate = pf.read_text().strip()
+        if candidate in PROFILE_NAMES:
+            return candidate
+    return WEB_DEFAULT_PROFILE
+
+
+def _verify_response(
+    job_id: str,
+    image_path: Path,
+    manifest_store: Path,
+    key_path: Path,
+    profile: str = WEB_DEFAULT_PROFILE,
+) -> dict[str, Any]:
     result = verify(
         watermarked_path=image_path,
         manifest_stores=manifest_store,
         key_envelope_path=key_path,
+        profile=profile,
     )
     report = dict(result.report)
     report["job_id"] = job_id
+    report["profile"] = profile
     report["verified"] = result.verified
     report["extraction_status"] = result.extraction_status
     report["verification_status"] = result.verification_status
@@ -185,9 +214,12 @@ def build_app(
     async def sign_embed_endpoint(
         file: UploadFile | None = File(default=None),
         storage: str = Form(default="local"),
+        profile: str = Form(default=WEB_DEFAULT_PROFILE),
     ) -> JSONResponse:
         if storage not in BACKEND_NAMES:
             raise HTTPException(400, f"storage must be one of {BACKEND_NAMES}")
+        if profile not in PROFILE_NAMES:
+            raise HTTPException(400, f"profile must be one of {list(PROFILE_NAMES)}")
 
         job_id = store.new_job()
         se_dir = store.sign_embed_dir(job_id)
@@ -205,9 +237,12 @@ def build_app(
             input_path=input_path,
             out_dir=se_dir,
             storage_backend=storage,
+            profile=profile,
         )
+        (se_dir / "profile.txt").write_text(profile + "\n")
         return JSONResponse({
             "job_id": job_id,
+            "profile": profile,
             "watermarked_url": f"/jobs/{job_id}/watermarked.png",
             "report_url": f"/jobs/{job_id}/report.json",
             "manifest_key": result.manifest_key_hex,
@@ -267,6 +302,7 @@ def build_app(
             image_path=se / "watermarked.png",
             manifest_store=se / "manifests",
             key_path=se / "key.json",
+            profile=_job_profile(se),
         )
         store.save_verify_report(job_id, report)
         return JSONResponse(report)
@@ -287,6 +323,7 @@ def build_app(
             image_path=upload_path,
             manifest_store=se / "manifests",
             key_path=se / "key.json",
+            profile=_job_profile(se),
         )
         store.save_verify_report(job_id, report)
         return JSONResponse(report)

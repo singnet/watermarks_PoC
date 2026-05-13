@@ -1,0 +1,24 @@
+{
+  "input": "synthetic",
+  "tampered": false,
+  "transform": "jpeg_q70",
+  "profile": "alpha_lsb",
+  "watermarked_path": "out/_transform_samples/alpha_lsb/jpeg_q70/watermarked.png",
+  "tampered_path": null,
+  "transformed_path": "out/_transform_samples/alpha_lsb/jpeg_q70/transformed_jpeg_q70.jpg",
+  "key_id": "oprow-key:Ed25519:D2GPmOp4VRKdtjzluKE8ENLgOA2__B2Y7s41ySLF4aQ",
+  "pointer_mode": "full160",
+  "watermark_alg_id": "IMG-ALPHA-LSB-REF-1",
+  "extraction_status": "no_watermark",
+  "locator_mode": null,
+  "verification_status": "no_watermark",
+  "verified": false,
+  "embed_diagnostics": {
+    "carrier": "alpha_lsb",
+    "capacity_bits": 36864,
+    "used_carrier_bits": 744,
+    "payload_bits": 200,
+    "repetitions": 3,
+    "pointer_mode": "full160"
+  }
+}

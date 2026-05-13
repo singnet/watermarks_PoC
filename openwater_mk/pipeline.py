@@ -127,7 +127,14 @@ def _default_strength(name: str, repetitions: int) -> WatermarkStrength:
     if name == "dct_qim":
         return WatermarkStrength(name="demo-dct-qim", repetitions=1, qim_delta=64.0)
     if name == "dct_qim_robust":
-        return WatermarkStrength(name="demo-dct-qim-robust", repetitions=1, qim_delta=56.0)
+        # Same delta as plain DCT-QIM (64). The robust profile's advantage
+        # over the reference comes from spectral spreading + majority vote
+        # across five coefficients, NOT from a magnitude bump. JPEG noise
+        # is correlated across coefficients of the same block, so simply
+        # increasing delta past the reference does not consistently help
+        # on the synthetic corpus — see the empirical sweep in
+        # tests/test_watermark_robust.py. Production tuning is V1+ work.
+        return WatermarkStrength(name="demo-dct-qim-robust", repetitions=1, qim_delta=64.0)
     raise ValueError(f"unknown profile {name!r}")
 
 

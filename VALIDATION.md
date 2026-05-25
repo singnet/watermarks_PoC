@@ -85,11 +85,10 @@ Some newer report-marker builds also include explicit demo-scope fields such
 as `real_network: false`, `storage_is_fake: true`, `cardano_backend:
 "mock_cardano"`, and `cardano_is_mock: true`. If those fields are absent but
 the required acceptance fields above are present, the main POC still validated.
-To check whether your checkout has the newer marker fields:
+To check whether your checkout writes the newer marker fields:
 
 ```bash
 grep -n "real_network" openwater_mk/pipeline.py
-.venv/bin/python -m openwater_mk.cli --help
 ```
 
 ## Automated Checks

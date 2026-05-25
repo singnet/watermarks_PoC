@@ -35,7 +35,8 @@ def render_index() -> str:
   <p class="subtitle">Internal demo of the OpenWater provenance stack.</p>
   <div class="card">
     <p><span class="pill pill-warn">DEMO</span>
-      Reference watermark profiles. Local/fake storage. Mock Cardano anchor.</p>
+      Reference watermark profiles. Local/fake storage by default. Real
+      storage and Blockfrost anchors are opt-in.</p>
   </div>
   <h2>Endpoints</h2>
   <ul>
@@ -45,7 +46,7 @@ def render_index() -> str:
     <li><code>GET /jobs/{job_id}/watermarked.png</code> &mdash; embedded image</li>
     <li><code>POST /jobs/{job_id}/verify</code> &mdash; verify the job&#x27;s watermarked image</li>
     <li><code>POST /verify</code> &mdash; multipart upload (PNG) + job_id form field</li>
-    <li><code>POST /jobs/{job_id}/anchor</code> &mdash; publish a mock Cardano anchor</li>
+    <li><code>POST /jobs/{job_id}/anchor</code> &mdash; publish a Cardano anchor</li>
     <li><code>GET /jobs/{job_id}/anchor</code> &mdash; anchor record + receipt + verification</li>
     <li><code>GET /jobs/{job_id}/report.html</code> &mdash; human-readable verify report</li>
   </ul>

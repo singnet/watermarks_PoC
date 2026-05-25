@@ -96,9 +96,14 @@ Trust does **not** flow from a successful watermark extraction:
    `storage_is_fake=true`, and `cardano_is_mock=true` so private-alpha
    reports are not confused with real chain evidence.
 
+10. **Real-network credentials.** `ipfs-daemon`, `arweave-gateway`, and
+   `blockfrost` are opt-in. Keep Blockfrost project IDs, payment signing keys,
+   Arweave wallet material, and uploader command wrappers out of git; configure
+   them via environment variables or external secret stores.
+
 ### Out of scope here (upstream-`oprow` audit territory)
 
-10. **CBOR canonicalization, signature scheme, PED-IMG-1 essence,
+11. **CBOR canonicalization, signature scheme, PED-IMG-1 essence,
     watermark profiles.** All implemented in the vendored `oprow/`
     package (see `vendor/oprow_docs/VENDORING.md` for source provenance).
     Bugs there would propagate through this codebase; an audit of

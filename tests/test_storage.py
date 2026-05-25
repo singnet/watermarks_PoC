@@ -7,12 +7,15 @@ from pathlib import Path
 import pytest
 
 from openwater_mk import (
+    ArweaveGatewayStore,
     FakeArweaveStore,
     FakeIPFSStore,
+    IPFSDaemonStore,
     LocalFileStore,
     detect_backend,
     store_from_spec,
 )
+import openwater_mk.storage as storage_mod
 from openwater_mk.cli import main as cli_main
 
 
@@ -76,9 +79,87 @@ def test_detect_backend(tmp_path: Path) -> None:
     LocalFileStore(root=tmp_path / "lf").put_bytes(b"x")
     FakeArweaveStore(root=tmp_path / "ar").put_bytes(b"x")
     FakeIPFSStore(root=tmp_path / "ip").put_bytes(b"x")
+    IPFSDaemonStore(root=tmp_path / "real_ip")
+    ArweaveGatewayStore(root=tmp_path / "real_ar")
     assert detect_backend(tmp_path / "lf") == "local"
     assert detect_backend(tmp_path / "ar") == "fake-arweave"
     assert detect_backend(tmp_path / "ip") == "fake-ipfs"
+    assert detect_backend(tmp_path / "real_ip") == "ipfs-daemon"
+    assert detect_backend(tmp_path / "real_ar") == "arweave-gateway"
+
+
+def test_ipfs_daemon_store_uses_api_and_gateway(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = b"manifest bytes from ipfs" * 8
+    cid = "bafybeigdyrztfakecidopenwater"
+
+    def fake_urlopen(request, *, timeout=60):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if "/api/v0/add" in url:
+            assert b"manifest bytes from ipfs" in request.data
+            return json_bytes({"Name": "manifest.cbor", "Hash": cid})
+        if url.endswith(f"/ipfs/{cid}"):
+            return data
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(storage_mod, "_urlopen_bytes", fake_urlopen)
+    store = IPFSDaemonStore(
+        root=tmp_path / "ipfs",
+        api_url="http://127.0.0.1:5001",
+        gateway_url="http://127.0.0.1:8080/ipfs",
+    )
+    key = store.put_bytes(data)
+    assert store.storage_uri(key) == f"ipfs://{cid}"
+    assert store.get_bytes(key) == data
+    assert detect_backend(tmp_path / "ipfs") == "ipfs-daemon"
+
+
+def test_arweave_gateway_store_uses_uploader_and_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = b"manifest bytes from arweave" * 8
+    txid = "a" * 43
+
+    class Proc:
+        returncode = 0
+        stdout = f"uploaded ar://{txid}\n"
+        stderr = ""
+
+    def fake_run(args, *, check, capture_output, text):
+        assert check is False
+        assert capture_output is True
+        assert text is True
+        payload_path = Path(args[-1])
+        assert payload_path.read_bytes() == data
+        return Proc()
+
+    def fake_urlopen(request, *, timeout=60):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        assert url.endswith(f"/{txid}")
+        return data
+
+    monkeypatch.setattr(storage_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(storage_mod, "_urlopen_bytes", fake_urlopen)
+    store = ArweaveGatewayStore(
+        root=tmp_path / "ar",
+        gateway_url="https://arweave.net",
+        upload_command="fake-uploader {path}",
+    )
+    key = store.put_bytes(data)
+    assert store.storage_uri(key) == f"ar://{txid}"
+    assert store.get_bytes(key) == data
+    assert detect_backend(tmp_path / "ar") == "arweave-gateway"
+
+
+def test_arweave_gateway_requires_upload_command(tmp_path: Path) -> None:
+    store = ArweaveGatewayStore(root=tmp_path / "ar", upload_command=None)
+    with pytest.raises(RuntimeError, match="OPENWATER_ARWEAVE_UPLOAD_COMMAND"):
+        store.put_bytes(b"manifest")
+
+
+def json_bytes(value: dict[str, str]) -> bytes:
+    import json
+    return json.dumps(value).encode("utf-8")
 
 
 # ---------------------------------------------------------------------------

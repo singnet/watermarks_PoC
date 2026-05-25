@@ -12,7 +12,7 @@ This module provides:
 - :func:`build_metadata_payload`  compact CBOR-friendly Cardano metadata map
 - :class:`AnchorReceipt`          normalized receipt returned after submit
 - :class:`MockCardanoBackend`     in-process backend used for the POC
-- :class:`BlockfrostCardanoBackend` stub for the real path
+- :class:`BlockfrostCardanoBackend` real testnet/mainnet Blockfrost backend
 
 No real Cardano transactions are submitted in the default ("mock") flow.
 The mock backend persists a JSON "ledger" file under a configurable root
@@ -26,10 +26,14 @@ label or registry entry before production.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 import secrets
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +45,24 @@ from oprow.core.canonical import canonical_cbor_dumps
 OPENWATER_CARDANO_METADATA_LABEL: int = 40961
 ANCHOR_PROFILE: str = "openwater-cardano-anchor-v1"
 ANCHOR_SCHEMA_VERSION: int = 1
+CARDANO_BACKEND_NAMES: tuple[str, ...] = ("mock", "blockfrost")
+CARDANO_NETWORK_NAMES: tuple[str, ...] = ("preprod", "preview", "mainnet")
+DEFAULT_BLOCKFROST_URLS: dict[str, str] = {
+    "preprod": "https://cardano-preprod.blockfrost.io/api/v0",
+    "preview": "https://cardano-preview.blockfrost.io/api/v0",
+    "mainnet": "https://cardano-mainnet.blockfrost.io/api/v0",
+}
+DEFAULT_HTTP_TIMEOUT_SECONDS = 60
+
+
+def _urlopen_bytes(
+    request: str | urllib.request.Request,
+    *,
+    timeout: int = DEFAULT_HTTP_TIMEOUT_SECONDS,
+) -> bytes:
+    """Small urllib wrapper so tests can monkeypatch Blockfrost calls."""
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
 
 
 # ---------------------------------------------------------------------------
@@ -288,28 +310,278 @@ def _json_to_cbor_friendly(value: Any, hex_keys: Iterable[str] = ()) -> Any:
 
 @dataclass
 class BlockfrostCardanoBackend:
-    """Real Cardano via Blockfrost API. Stub.
+    """Real Cardano backend using Blockfrost and optional pycardano.
 
-    Wiring once the project_id is available:
+    Fetching uses Blockfrost directly. Submitting requires ``pycardano`` plus a
+    funded wallet configured via:
 
-        import requests
-        BASE = "https://cardano-preprod.blockfrost.io/api/v0"
-        headers = {"project_id": os.environ["BLOCKFROST_PROJECT_ID"]}
+    - ``BLOCKFROST_PROJECT_ID``
+    - ``OPENWATER_CARDANO_NETWORK`` (``preprod`` by default)
+    - ``OPENWATER_CARDANO_PAYMENT_SKEY``
+    - ``OPENWATER_CARDANO_PAYMENT_ADDRESS``
 
-        # submit needs a built+signed tx (pycardano + a funded wallet)
-        # fetch is straightforward:
-        r = requests.get(f"{BASE}/txs/{tx_hash}/metadata", headers=headers)
+    The submit path creates a small self-transfer carrying OpenWater metadata.
     """
 
     project_id: str | None = field(default_factory=lambda: os.environ.get("BLOCKFROST_PROJECT_ID"))
-    network: str = "preprod"
+    network: str = field(default_factory=lambda: os.environ.get("OPENWATER_CARDANO_NETWORK", "preprod"))
+    base_url: str | None = field(default_factory=lambda: os.environ.get("OPENWATER_CARDANO_BLOCKFROST_URL"))
+    payment_skey_path: Path | None = field(default_factory=lambda: (
+        Path(os.environ["OPENWATER_CARDANO_PAYMENT_SKEY"])
+        if os.environ.get("OPENWATER_CARDANO_PAYMENT_SKEY") else None
+    ))
+    payment_address: str | None = field(default_factory=lambda: os.environ.get("OPENWATER_CARDANO_PAYMENT_ADDRESS"))
+    submit_lovelace: int = field(default_factory=lambda: int(os.environ.get("OPENWATER_CARDANO_SUBMIT_LOVELACE", "1500000")))
     name: str = "blockfrost_cardano"
 
-    def submit(self, metadata: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:  # pragma: no cover
-        raise NotImplementedError("Blockfrost submit requires pycardano + funded wallet; see V1 doc")
+    def __post_init__(self) -> None:
+        self.network = self.network.lower()
+        if self.network not in DEFAULT_BLOCKFROST_URLS and not self.base_url:
+            raise ValueError(
+                f"unknown Cardano network {self.network!r}; expected one of "
+                f"{tuple(DEFAULT_BLOCKFROST_URLS)} or set OPENWATER_CARDANO_BLOCKFROST_URL"
+            )
+        if self.base_url is None:
+            self.base_url = DEFAULT_BLOCKFROST_URLS[self.network]
+        self.base_url = self.base_url.rstrip("/")
 
-    def fetch_transaction(self, tx_hash_hex: str) -> dict[str, Any] | None:  # pragma: no cover
-        raise NotImplementedError("Blockfrost fetch needs project_id + requests; see V1 doc")
+    def _require_project_id(self) -> str:
+        if not self.project_id:
+            raise RuntimeError("Blockfrost backend requires BLOCKFROST_PROJECT_ID")
+        return self.project_id
+
+    def _request_json(self, path: str) -> Any:
+        project_id = self._require_project_id()
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            headers={"project_id": project_id},
+            method="GET",
+        )
+        raw = _urlopen_bytes(request)
+        return json.loads(raw.decode("utf-8"))
+
+    def _request_bytes(
+        self,
+        path: str,
+        *,
+        data: bytes,
+        content_type: str = "application/cbor",
+    ) -> bytes:
+        project_id = self._require_project_id()
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=data,
+            headers={"project_id": project_id, "Content-Type": content_type},
+            method="POST",
+        )
+        return _urlopen_bytes(request)
+
+    def submit(self, metadata: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:
+        if not self.payment_skey_path or not self.payment_address:
+            raise RuntimeError(
+                "Blockfrost submit requires OPENWATER_CARDANO_PAYMENT_SKEY and "
+                "OPENWATER_CARDANO_PAYMENT_ADDRESS"
+            )
+        try:
+            from pycardano import (  # type: ignore[import-not-found]
+                Address,
+                AlonzoMetadata,
+                AuxiliaryData,
+                BlockFrostChainContext,
+                Metadata,
+                Network,
+                PaymentSigningKey,
+                TransactionBuilder,
+                TransactionOutput,
+            )
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "Blockfrost submit requires optional dependency pycardano"
+            ) from exc
+
+        project_id = self._require_project_id()
+        network = Network.MAINNET if self.network == "mainnet" else Network.TESTNET
+        context_kwargs: dict[str, Any] = {"project_id": project_id}
+        context_params = inspect.signature(BlockFrostChainContext).parameters
+        if "base_url" in context_params:
+            context_kwargs["base_url"] = self.base_url
+        elif "network" in context_params:
+            context_kwargs["network"] = network
+        context = BlockFrostChainContext(**context_kwargs)
+        signing_key = PaymentSigningKey.load(str(self.payment_skey_path))
+        address = Address.from_primitive(self.payment_address)
+        builder = TransactionBuilder(context)
+        builder.add_input_address(address)
+        builder.add_output(TransactionOutput(address, self.submit_lovelace))
+        builder.auxiliary_data = AuxiliaryData(
+            AlonzoMetadata(metadata=Metadata({int(k): v for k, v in metadata.items()}))
+        )
+        signed_tx = builder.build_and_sign(
+            signing_keys=[signing_key],
+            change_address=address,
+        )
+        submitted = context.submit_tx(signed_tx.to_cbor())
+        tx_hash = submitted.hex() if isinstance(submitted, bytes) else str(submitted)
+        fetched = None
+        # Blockfrost may need a moment to index. Return a useful receipt even
+        # when the tx is not immediately fetchable.
+        try:
+            fetched = self.fetch_transaction(tx_hash)
+        except urllib.error.URLError:
+            fetched = None
+        return fetched or {
+            "tx_hash": tx_hash,
+            "slot": None,
+            "block_hash": None,
+            "block_height": None,
+            "metadata_label": next(iter(metadata)),
+            "metadata_size_bytes": metadata_payload_size_bytes(metadata),
+            "metadata": {str(k): _cbor_friendly_to_json(v) for k, v in metadata.items()},
+        }
+
+    def fetch_transaction(self, tx_hash_hex: str) -> dict[str, Any] | None:
+        quoted_hash = urllib.parse.quote(tx_hash_hex)
+        try:
+            tx_info = self._request_json(f"/txs/{quoted_hash}")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
+        metadata: dict[str, Any] = {}
+        try:
+            metadata_items = self._request_json(f"/txs/{quoted_hash}/metadata")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                metadata_items = []
+            else:
+                raise
+        if isinstance(metadata_items, list):
+            for item in metadata_items:
+                label = str(item.get("label"))
+                if not label:
+                    continue
+                if item.get("json_metadata") is not None:
+                    metadata[label] = _normalise_blockfrost_json_metadata(item["json_metadata"])
+                elif item.get("cbor_metadata") is not None:
+                    metadata[label] = _normalise_blockfrost_cbor_metadata(
+                        str(item["cbor_metadata"]),
+                        label=label,
+                    )
+
+        block_height = tx_info.get("block_height")
+        confirmations = None
+        if block_height is not None:
+            try:
+                latest = self._request_json("/blocks/latest")
+                tip_height = latest.get("height")
+                if tip_height is not None:
+                    confirmations = max(0, int(tip_height) - int(block_height) + 1)
+            except urllib.error.URLError:
+                confirmations = None
+
+        label = next(iter(metadata), str(OPENWATER_CARDANO_METADATA_LABEL))
+        return {
+            "tx_hash": tx_info.get("hash", tx_hash_hex),
+            "slot": tx_info.get("slot"),
+            "block_hash": tx_info.get("block"),
+            "block_height": block_height,
+            "metadata_size_bytes": tx_info.get("metadata_size")
+                or metadata_payload_size_bytes({OPENWATER_CARDANO_METADATA_LABEL: {}}),
+            "metadata": metadata,
+            "metadata_label": int(label),
+            "confirmations": confirmations,
+        }
+
+
+def _normalise_blockfrost_json_metadata(value: Any) -> Any:
+    """Normalize Blockfrost JSON metadata into the verifier's debug shape."""
+    if isinstance(value, Mapping):
+        # Some submitters encode bytes as {"bytes": "..."} in JSON metadata.
+        if set(value.keys()) == {"bytes"} and isinstance(value.get("bytes"), str):
+            return value["bytes"]
+        return {str(k): _normalise_blockfrost_json_metadata(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_normalise_blockfrost_json_metadata(v) for v in value]
+    return value
+
+
+class _CborDecodeError(ValueError):
+    pass
+
+
+def _decode_cbor_head(data: bytes, offset: int) -> tuple[int, int, int]:
+    if offset >= len(data):
+        raise _CborDecodeError("truncated CBOR")
+    first = data[offset]
+    offset += 1
+    major = first >> 5
+    ai = first & 0x1F
+    if ai < 24:
+        return major, ai, offset
+    if ai == 24:
+        nbytes = 1
+    elif ai == 25:
+        nbytes = 2
+    elif ai == 26:
+        nbytes = 4
+    elif ai == 27:
+        nbytes = 8
+    else:
+        raise _CborDecodeError("indefinite/reserved CBOR lengths are unsupported")
+    end = offset + nbytes
+    if end > len(data):
+        raise _CborDecodeError("truncated CBOR integer")
+    return major, int.from_bytes(data[offset:end], "big"), end
+
+
+def _decode_cardano_metadata_cbor(data: bytes, offset: int = 0) -> tuple[Any, int]:
+    """Decode the restricted Cardano metadata subset OpenWater emits."""
+    major, arg, offset = _decode_cbor_head(data, offset)
+    if major == 0:
+        return arg, offset
+    if major == 1:
+        return -1 - arg, offset
+    if major == 2:
+        end = offset + arg
+        if end > len(data):
+            raise _CborDecodeError("truncated CBOR bytes")
+        return data[offset:end], end
+    if major == 3:
+        end = offset + arg
+        if end > len(data):
+            raise _CborDecodeError("truncated CBOR string")
+        return data[offset:end].decode("utf-8"), end
+    if major == 4:
+        values = []
+        for _ in range(arg):
+            value, offset = _decode_cardano_metadata_cbor(data, offset)
+            values.append(value)
+        return values, offset
+    if major == 5:
+        out: dict[Any, Any] = {}
+        for _ in range(arg):
+            key, offset = _decode_cardano_metadata_cbor(data, offset)
+            value, offset = _decode_cardano_metadata_cbor(data, offset)
+            out[key] = value
+        return out, offset
+    if major == 7 and arg in {20, 21, 22}:
+        return ({20: False, 21: True, 22: None}[arg]), offset
+    raise _CborDecodeError(f"unsupported Cardano metadata CBOR major type {major}")
+
+
+def _normalise_blockfrost_cbor_metadata(cbor_hex: str, *, label: str) -> Any:
+    try:
+        decoded, offset = _decode_cardano_metadata_cbor(bytes.fromhex(cbor_hex))
+        if offset != len(bytes.fromhex(cbor_hex)):
+            raise _CborDecodeError("trailing CBOR bytes")
+    except (ValueError, _CborDecodeError):
+        return {"cbor_metadata": cbor_hex}
+    if isinstance(decoded, Mapping):
+        for label_key in (int(label), label):
+            if label_key in decoded and len(decoded) == 1:
+                decoded = decoded[label_key]
+                break
+    return _cbor_friendly_to_json(decoded)
 
 
 # ---------------------------------------------------------------------------
@@ -349,11 +621,11 @@ def publish_anchor(
         chain_evidence={
             "mode": "metadata",
             "tx_hash": tx["tx_hash"],
-            "slot": tx["slot"],
-            "block_hash": tx["block_hash"],
+            "slot": tx.get("slot"),
+            "block_hash": tx.get("block_hash"),
             "block_height": tx.get("block_height"),
-            "metadata_label": tx["metadata_label"],
-            "metadata_size_bytes": tx["metadata_size_bytes"],
+            "metadata_label": tx.get("metadata_label", OPENWATER_CARDANO_METADATA_LABEL),
+            "metadata_size_bytes": tx.get("metadata_size_bytes", metadata_payload_size_bytes(metadata)),
         },
     )
 
@@ -440,28 +712,40 @@ def verify_anchor(
     chain_evidence: dict[str, Any] = {"backend": backend.name}
     if tx is not None:
         chain_evidence.update(
-            tx_hash=tx["tx_hash"],
-            slot=tx["slot"],
-            block_hash=tx["block_hash"],
+            tx_hash=tx.get("tx_hash"),
+            slot=tx.get("slot"),
+            block_hash=tx.get("block_hash"),
             block_height=tx.get("block_height"),
         )
         # Mock ledger uses block_height == len(txs after submit). For mock
         # the "confirmations" count = total ledger length - this block_height + 1.
-        # For Blockfrost this would use a chain-tip lookup.
+        # Blockfrost computes confirmations from /blocks/latest when available.
         block_height = tx.get("block_height", 0)
         if isinstance(backend, MockCardanoBackend):
             tip = max((t.get("block_height", 0) for t in backend._load()["txs"]), default=0)
             confirmations = max(0, tip - block_height + 1)
             chain_evidence["confirmations"] = confirmations
-            if confirmations < min_confirmations:
-                failures.append(
-                    f"insufficient confirmations: have {confirmations}, need {min_confirmations}"
-                )
+        else:
+            confirmations = tx.get("confirmations")
+            if confirmations is not None:
+                chain_evidence["confirmations"] = confirmations
+        if confirmations is None and min_confirmations > 0:
+            failures.append("confirmation count unavailable from backend")
+        elif confirmations is not None and confirmations < min_confirmations:
+            failures.append(
+                f"insufficient confirmations: have {confirmations}, need {min_confirmations}"
+            )
 
         label_str = str(receipt.metadata_label)
         md_payload = tx.get("metadata", {}).get(label_str)
         if not md_payload:
             failures.append(f"metadata label {label_str} not present in tx")
+        elif not isinstance(md_payload, Mapping):
+            failures.append(f"metadata label {label_str} is not a map")
+        elif "cbor_metadata" in md_payload and len(md_payload) == 1:
+            failures.append(
+                f"metadata label {label_str} has only CBOR metadata; JSON fields unavailable"
+            )
         else:
             expected = _cbor_friendly_to_json(
                 build_metadata_payload(record)[receipt.metadata_label]
@@ -480,6 +764,8 @@ def verify_anchor(
 
 
 __all__ = [
+    "CARDANO_BACKEND_NAMES",
+    "CARDANO_NETWORK_NAMES",
     "OPENWATER_CARDANO_METADATA_LABEL",
     "ANCHOR_PROFILE",
     "ANCHOR_SCHEMA_VERSION",

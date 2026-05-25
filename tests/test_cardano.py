@@ -10,15 +10,19 @@ from openwater_mk import (
     OPENWATER_CARDANO_METADATA_LABEL,
     AnchorRecord,
     AnchorReceipt,
+    BlockfrostCardanoBackend,
     MockCardanoBackend,
     anchor_record_hash,
     build_metadata_payload,
     publish_anchor,
     verify_anchor,
 )
+import openwater_mk.cardano as cardano_mod
+from oprow.core.canonical import canonical_cbor_dumps
 from openwater_mk.cardano import (
     ANCHOR_PROFILE,
     ANCHOR_SCHEMA_VERSION,
+    _cbor_friendly_to_json,
     canonical_anchor_bytes,
     metadata_payload_size_bytes,
 )
@@ -116,6 +120,109 @@ def test_mock_backend_slots_are_monotonic(tmp_path: Path) -> None:
     s1 = backend.submit(build_metadata_payload(_sample_record(epoch=0)))["slot"]
     s2 = backend.submit(build_metadata_payload(_sample_record(epoch=1)))["slot"]
     assert s2 == s1 + 1
+
+
+def test_blockfrost_submit_requires_wallet_config() -> None:
+    backend = BlockfrostCardanoBackend(
+        project_id="project-id",
+        network="preprod",
+        payment_skey_path=None,
+        payment_address=None,
+    )
+    with pytest.raises(RuntimeError, match="OPENWATER_CARDANO_PAYMENT_SKEY"):
+        backend.submit(build_metadata_payload(_sample_record()))
+
+
+def test_blockfrost_fetch_transaction_parses_metadata_and_confirmations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tx_hash = "12" * 32
+    record = _sample_record(
+        ar_ref="ar://" + "a" * 43,
+        created_at="2026-05-25T00:00:00+00:00",
+    )
+    expected_payload = _cbor_friendly_to_json(
+        build_metadata_payload(record)[OPENWATER_CARDANO_METADATA_LABEL]
+    )
+
+    def fake_urlopen(request, *, timeout=60):
+        url = request.full_url
+        assert (request.headers.get("project_id") or request.headers.get("Project_id")) == "project-id"
+        if url.endswith(f"/txs/{tx_hash}"):
+            return json.dumps({
+                "hash": tx_hash,
+                "slot": 123,
+                "block": "blockhash",
+                "block_height": 100,
+                "metadata_size": 222,
+            }).encode("utf-8")
+        if url.endswith(f"/txs/{tx_hash}/metadata"):
+            return json.dumps([{
+                "label": str(OPENWATER_CARDANO_METADATA_LABEL),
+                "json_metadata": expected_payload,
+            }]).encode("utf-8")
+        if url.endswith("/blocks/latest"):
+            return json.dumps({"height": 102}).encode("utf-8")
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(cardano_mod, "_urlopen_bytes", fake_urlopen)
+    backend = BlockfrostCardanoBackend(project_id="project-id", network="preprod")
+    fetched = backend.fetch_transaction(tx_hash)
+    assert fetched is not None
+    assert fetched["tx_hash"] == tx_hash
+    assert fetched["metadata"][str(OPENWATER_CARDANO_METADATA_LABEL)] == expected_payload
+    assert fetched["confirmations"] == 3
+
+    receipt = AnchorReceipt(
+        backend=backend.name,
+        network=backend.network,
+        anchor_record_hash=anchor_record_hash(record),
+        metadata_label=OPENWATER_CARDANO_METADATA_LABEL,
+        chain_evidence={"tx_hash": tx_hash},
+    )
+    verification = verify_anchor(record=record, receipt=receipt, backend=backend)
+    assert verification.ok, verification.failures
+    assert verification.chain_evidence["confirmations"] == 3
+
+
+def test_blockfrost_fetch_transaction_parses_cbor_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tx_hash = "34" * 32
+    record = _sample_record(created_at="2026-05-25T00:00:00+00:00")
+    payload = build_metadata_payload(record)[OPENWATER_CARDANO_METADATA_LABEL]
+
+    def fake_urlopen(request, *, timeout=60):
+        url = request.full_url
+        if url.endswith(f"/txs/{tx_hash}"):
+            return json.dumps({
+                "hash": tx_hash,
+                "slot": 456,
+                "block": "blockhash",
+                "block_height": 10,
+                "metadata_size": 222,
+            }).encode("utf-8")
+        if url.endswith(f"/txs/{tx_hash}/metadata"):
+            return json.dumps([{
+                "label": str(OPENWATER_CARDANO_METADATA_LABEL),
+                "json_metadata": None,
+                "cbor_metadata": canonical_cbor_dumps(payload).hex(),
+            }]).encode("utf-8")
+        if url.endswith("/blocks/latest"):
+            return json.dumps({"height": 10}).encode("utf-8")
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(cardano_mod, "_urlopen_bytes", fake_urlopen)
+    backend = BlockfrostCardanoBackend(project_id="project-id", network="preprod")
+    receipt = AnchorReceipt(
+        backend=backend.name,
+        network=backend.network,
+        anchor_record_hash=anchor_record_hash(record),
+        metadata_label=OPENWATER_CARDANO_METADATA_LABEL,
+        chain_evidence={"tx_hash": tx_hash},
+    )
+    verification = verify_anchor(record=record, receipt=receipt, backend=backend)
+    assert verification.ok, verification.failures
 
 
 def test_publish_and_verify_roundtrip(tmp_path: Path) -> None:

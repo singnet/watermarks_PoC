@@ -10,13 +10,15 @@ built on top of the `oprow` Version-0 reference SDK (vendored in-tree under
 
 **Scope:** internal demo only. Image-only. Local Ed25519 keys.
 Local/fake Arweave/IPFS manifest stores and a mock Cardano metadata anchor
-provide the decentralized provenance shape without making network calls.
+provide the default decentralized provenance shape without making network
+calls. Opt-in real adapters are available for an IPFS daemon, Arweave gateway
+upload command, and Blockfrost-backed Cardano testnets.
 Three reference watermark carriers selectable via `--profile`:
 `alpha_lsb` (lossless PNG only), `dct_qim` (default; JPEG-robust
 locator), `dct_qim_robust` (5-coefficient spectral spread, same JPEG
 profile as the reference on the demo corpus, structural template for
-production tuning). Real Arweave/IPFS uploads, real Cardano transactions,
-Rholang, and Hyperon land in V1+ per the OpenWater roadmap.
+production tuning). Rholang, Hyperon, and production hardening remain V1+
+work per the OpenWater roadmap.
 
 ## What this shows
 
@@ -27,8 +29,8 @@ Rholang, and Hyperon land in V1+ per the OpenWater roadmap.
 4. Extract the locator from the watermarked image, resolve the manifest from
    a local content-addressed store, verify signature + essence binding +
    local trust policy.
-5. Optionally persist the manifest through fake Arweave/IPFS-shaped stores
-   and publish a mock Cardano metadata anchor.
+5. Optionally persist the manifest through fake or real Arweave/IPFS-shaped
+   stores and publish a mock or Blockfrost Cardano metadata anchor.
 6. Emit JSON verification and POC reports.
 
 The security boundary, per the OpenWater design doc:
@@ -80,9 +82,9 @@ openwater poc --out /tmp/openwater-poc      # watermark + fake Arweave + mock Ca
 image, stores the manifest in a fake Arweave-shaped backend by default,
 verifies the watermarked artifact, anchors the manifest commitment in the
 mock Cardano ledger, verifies that anchor, and writes `poc_report.json`.
-The report explicitly marks `real_network=false`, `storage_is_fake=true`,
-and `cardano_is_mock=true`; no real Arweave/IPFS/Cardano network submission
-occurs in this private-alpha POC.
+The default report explicitly marks `real_network=false`,
+`storage_is_fake=true`, and `cardano_is_mock=true`; no real
+Arweave/IPFS/Cardano network submission occurs in this private-alpha POC.
 
 For a cross-process round-trip (sign-and-embed in one shot, verify later
 against persisted artifacts):
@@ -105,8 +107,9 @@ openwater verify /tmp/run2/watermarked.png \
 The `fake-arweave` and `fake-ipfs` backends emit realistic identifier
 shapes (43-char base64url Arweave txid, base32 CIDv1) but do not make
 network calls — they persist manifest bytes to a local fanout directory.
-Real Arweave/IPFS adapters are stubbed in `openwater_mk/storage.py` and
-are a localized swap-in once credentials are available.
+For real storage, use `--storage ipfs-daemon` with a running Kubo daemon or
+`--storage arweave-gateway` with `OPENWATER_ARWEAVE_UPLOAD_COMMAND` set to a
+funded uploader command.
 
 `demo_internal.py` still works as a shim for the demo subcommand only.
 
@@ -127,7 +130,7 @@ openwater-demo/
 │   ├── test_demo.py        # in-process pipeline
 │   ├── test_cli.py         # CLI surface
 │   ├── test_storage.py     # local/fake Arweave/fake IPFS stores
-│   ├── test_cardano.py     # mock Cardano metadata anchor
+│   ├── test_cardano.py     # mock + Blockfrost metadata anchor seams
 │   ├── test_web.py         # FastAPI surface
 │   └── oprow_upstream/     # vendored oprow test suite (85 cases)
 ├── vendor/oprow_docs/      # upstream README_STEP*.md + VENDORING.md
@@ -253,15 +256,16 @@ The service has **no authentication**, so it ships with these guardrails:
 See [SECURITY.md](SECURITY.md) for the full threat model and the list of
 known gaps a real security audit should focus on.
 
-## Cardano metadata anchoring (mock backend today)
+## Cardano metadata anchoring
 
 Anchors are published per §16.6 of the design doc: a compact CBOR-friendly
 commitment under metadata label ``40961`` (the experimental MVP label
-specified in §16.6.3). The current backend is a process-local mock that
+specified in §16.6.3). The default backend is a process-local mock that
 fakes Cardano-shaped tx hashes, slots, and block hashes — enough to drive
 verification end-to-end and pin the metadata schema before any real
-wallet is involved. ``BlockfrostCardanoBackend`` is stubbed for the real
-path.
+wallet is involved. `--cardano-backend blockfrost` submits/fetches real
+testnet/mainnet metadata transactions when Blockfrost, `pycardano`, and a
+funded payment wallet are configured.
 
 ```bash
 openwater sign-embed --storage fake-arweave --out /tmp/run-ar
@@ -270,11 +274,20 @@ cat /tmp/run-ar-anchor/metadata.json          # the compact metadata as submitte
 openwater verify-anchor /tmp/run-ar-anchor    # confirms tx, recomputes hashes, checks fields
 ```
 
+Real preprod example:
+
+```bash
+export BLOCKFROST_PROJECT_ID=preprod...
+export OPENWATER_CARDANO_NETWORK=preprod
+export OPENWATER_CARDANO_PAYMENT_SKEY=/secure/path/payment.skey
+export OPENWATER_CARDANO_PAYMENT_ADDRESS=addr_test...
+openwater anchor /tmp/run-ar --out /tmp/run-ar-anchor \
+    --cardano-backend blockfrost --cardano-network preprod
+openwater verify-anchor /tmp/run-ar-anchor --cardano-backend blockfrost
+```
+
 ## Defer to V1+
 
-- Real Arweave uploads (need funded wallet + ``arweave-python-client``)
-- Real IPFS pinning (need daemon or Pinata/web3.storage credentials)
-- Real Cardano tx submission (need ``pycardano`` + funded wallet, e.g. via Blockfrost)
 - SHORT64-HV pointer mode (for low-capacity channels)
 - C2PA SDK / JUMBF packaging
 - Rholang trust-machine contracts

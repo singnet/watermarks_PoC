@@ -5,11 +5,14 @@ live in the upstream ``oprow`` package. This package is just the glue that
 makes a runnable end-to-end demo, plus the ``openwater`` CLI entrypoint.
 """
 from .cardano import (
+    CARDANO_BACKEND_NAMES,
+    CARDANO_NETWORK_NAMES,
     OPENWATER_CARDANO_METADATA_LABEL,
     AnchorRecord,
     AnchorReceipt,
     AnchorResult,
     AnchorVerification,
+    BlockfrostCardanoBackend,
     MockCardanoBackend,
     anchor_record_hash,
     build_metadata_payload,
@@ -34,8 +37,10 @@ from .pipeline import (
 )
 from .storage import (
     BACKEND_NAMES,
+    ArweaveGatewayStore,
     FakeArweaveStore,
     FakeIPFSStore,
+    IPFSDaemonStore,
     LocalFileStore,
     ManifestStore,
     detect_backend,
@@ -65,6 +70,8 @@ __all__ = [
     "LocalFileStore",
     "FakeArweaveStore",
     "FakeIPFSStore",
+    "ArweaveGatewayStore",
+    "IPFSDaemonStore",
     "store_from_spec",
     "detect_backend",
     "run_demo",
@@ -74,12 +81,15 @@ __all__ = [
     "verify",
     "inspect_only",
     # Cardano anchoring
+    "CARDANO_BACKEND_NAMES",
+    "CARDANO_NETWORK_NAMES",
     "OPENWATER_CARDANO_METADATA_LABEL",
     "AnchorRecord",
     "AnchorReceipt",
     "AnchorResult",
     "AnchorVerification",
     "MockCardanoBackend",
+    "BlockfrostCardanoBackend",
     "anchor_record_hash",
     "build_metadata_payload",
     "publish_anchor",

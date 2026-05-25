@@ -64,6 +64,7 @@ from .cardano import (
     AnchorReceipt,
     AnchorResult,
     AnchorVerification,
+    BlockfrostCardanoBackend,
     MockCardanoBackend,
     _anchor_from_json,
     _anchor_to_json,
@@ -187,6 +188,22 @@ def _tamper_rgb(png_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _cardano_backend_from_spec(
+    *,
+    backend: str,
+    cardano_dir: Path,
+    network: str | None = None,
+) -> MockCardanoBackend | BlockfrostCardanoBackend:
+    if backend == "mock":
+        return MockCardanoBackend(ledger_path=cardano_dir / "ledger.json")
+    if backend == "blockfrost":
+        kwargs: dict[str, Any] = {}
+        if network:
+            kwargs["network"] = network
+        return BlockfrostCardanoBackend(**kwargs)
+    raise ValueError("cardano_backend must be 'mock' or 'blockfrost'")
+
+
 # ---------------------------------------------------------------------------
 # Key serialization (reference format; not a production storage recommendation)
 # ---------------------------------------------------------------------------
@@ -296,8 +313,9 @@ def sign_and_embed(
     - ``manifest_key.txt``      — hex of the manifest's ManifestKey
     - ``storage_uri.txt``       — backend-specific URI (file://, ar://, ipfs://)
 
-    ``storage_backend`` may be ``"local"`` (default), ``"fake-arweave"``, or
-    ``"fake-ipfs"``. See :mod:`openwater_mk.storage`.
+    ``storage_backend`` may be ``"local"`` (default), ``"fake-arweave"``,
+    ``"fake-ipfs"``, ``"arweave-gateway"``, or ``"ipfs-daemon"``. See
+    :mod:`openwater_mk.storage`.
 
     ``profile`` selects the watermark carrier; see ``PROFILE_NAMES``.
     """
@@ -483,8 +501,10 @@ def anchor_sign_embed_output(
     cardano_dir: Path,
     epoch: int = 0,
     record_type: str = "manifest_root",
+    cardano_backend: str = "mock",
+    cardano_network: str | None = None,
 ) -> AnchorResult:
-    """Anchor a ``sign-embed`` output directory on the (mock) Cardano backend.
+    """Anchor a ``sign-embed`` output directory on the selected Cardano backend.
 
     Reads:
       ``sign_embed_dir/manifest_key.txt``   subject id + root hash
@@ -492,7 +512,7 @@ def anchor_sign_embed_output(
       ``sign_embed_dir/key.json``           operator kid
 
     Writes under ``cardano_dir``:
-      ``ledger.json``           the mock Cardano ledger (append-only)
+      ``ledger.json``           the mock Cardano ledger (mock backend only)
       ``anchor_record.json``    canonical anchor record
       ``receipt.json``          chain-agnostic anchor receipt
       ``metadata.json``         CBOR-friendly metadata payload as submitted
@@ -520,7 +540,11 @@ def anchor_sign_embed_output(
         ip_ref=ip_ref,
     )
 
-    backend = MockCardanoBackend(ledger_path=cardano_dir / "ledger.json")
+    backend = _cardano_backend_from_spec(
+        backend=cardano_backend,
+        cardano_dir=cardano_dir,
+        network=cardano_network,
+    )
     return publish_anchor(record=record, backend=backend, out_dir=cardano_dir)
 
 
@@ -528,11 +552,20 @@ def verify_anchor_dir(
     *,
     cardano_dir: Path,
     min_confirmations: int = 1,
+    cardano_backend: str | None = None,
+    cardano_network: str | None = None,
 ) -> AnchorVerification:
     """Re-verify an anchor by reading the artifacts produced above."""
     record = _anchor_from_json(json.loads((cardano_dir / "anchor_record.json").read_text()))
     receipt = AnchorReceipt.from_json(json.loads((cardano_dir / "receipt.json").read_text()))
-    backend = MockCardanoBackend(ledger_path=cardano_dir / "ledger.json")
+    backend_spec = cardano_backend
+    if backend_spec is None:
+        backend_spec = "blockfrost" if receipt.backend == "blockfrost_cardano" else "mock"
+    backend = _cardano_backend_from_spec(
+        backend=backend_spec,
+        cardano_dir=cardano_dir,
+        network=cardano_network or (None if receipt.network == "mock" else receipt.network),
+    )
     return verify_anchor(
         record=record,
         receipt=receipt,
@@ -548,6 +581,8 @@ def run_poc(
     storage_backend: str = "fake-arweave",
     profile: str = "alpha_lsb",
     epoch: int = 0,
+    cardano_backend: str = "mock",
+    cardano_network: str | None = None,
 ) -> PocResult:
     """Run the Ben-task POC: watermark, store, verify, anchor, re-verify.
 
@@ -579,18 +614,27 @@ def run_poc(
         sign_embed_dir=sign_embed_dir,
         cardano_dir=cardano_dir,
         epoch=epoch,
+        cardano_backend=cardano_backend,
+        cardano_network=cardano_network,
     )
-    anchor_verification = verify_anchor_dir(cardano_dir=cardano_dir)
+    anchor_verification = verify_anchor_dir(
+        cardano_dir=cardano_dir,
+        cardano_backend=cardano_backend,
+        cardano_network=cardano_network,
+    )
 
     tx_hash = str(anchor_result.receipt.chain_evidence["tx_hash"])
     metadata_label = int(anchor_result.receipt.metadata_label)
     storage_is_fake = storage_backend.startswith("fake-")
-    cardano_backend = str(anchor_result.receipt.chain_evidence.get("backend", "mock_cardano"))
+    storage_is_real = storage_backend not in {"local", "fake-arweave", "fake-ipfs"}
+    cardano_backend_name = str(anchor_result.receipt.chain_evidence.get("backend", "mock_cardano"))
+    cardano_is_mock = cardano_backend_name == "mock_cardano"
     report = {
         "profile": profile,
-        "real_network": False,
+        "real_network": storage_is_real or not cardano_is_mock,
         "storage_backend": storage_backend,
         "storage_is_fake": storage_is_fake,
+        "storage_is_real": storage_is_real,
         "storage_uri": sign_result.storage_uri,
         "manifest_key": sign_result.manifest_key_hex,
         "watermarked_path": str(sign_result.watermarked_path),
@@ -598,8 +642,9 @@ def run_poc(
         "anchor_record": str(anchor_result.anchor_record_path),
         "anchor_receipt": str(anchor_result.receipt_path),
         "anchor_metadata": str(anchor_result.metadata_path),
-        "cardano_backend": cardano_backend,
-        "cardano_is_mock": cardano_backend == "mock_cardano",
+        "cardano_backend": cardano_backend_name,
+        "cardano_network": anchor_result.receipt.network,
+        "cardano_is_mock": cardano_is_mock,
         "verified": verify_result.verified,
         "extraction_status": verify_result.extraction_status,
         "verification_status": verify_result.verification_status,

@@ -10,7 +10,7 @@ Mounted endpoints (see also ``/docs``):
   GET  /jobs/{job_id}/watermarked.png   raw watermarked image
   POST /jobs/{job_id}/verify            verify the job's own image
   POST /verify                          verify an uploaded image against a job
-  POST /jobs/{job_id}/anchor            publish a mock Cardano anchor
+  POST /jobs/{job_id}/anchor            publish a Cardano anchor
   GET  /jobs/{job_id}/anchor            anchor metadata + re-verification
   GET  /jobs/{job_id}/report.html       human-readable verify report
   GET  /jobs/{job_id}/report.json       JSON verify report
@@ -34,6 +34,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from ..cardano import CARDANO_BACKEND_NAMES, CARDANO_NETWORK_NAMES
 from ..pipeline import (
     PROFILE_NAMES,
     anchor_sign_embed_output,
@@ -347,8 +348,18 @@ def build_app(
         return render_verify_report_html(report)
 
     @app.post("/jobs/{job_id}/anchor")
-    def post_anchor(job_id: str, epoch: int = 0, record_type: str = "manifest_root") -> JSONResponse:
+    def post_anchor(
+        job_id: str,
+        epoch: int = 0,
+        record_type: str = "manifest_root",
+        cardano_backend: str = "mock",
+        cardano_network: str | None = None,
+    ) -> JSONResponse:
         _validate_job_id(job_id)
+        if cardano_backend not in CARDANO_BACKEND_NAMES:
+            raise HTTPException(400, f"cardano_backend must be one of {CARDANO_BACKEND_NAMES}")
+        if cardano_network is not None and cardano_network not in CARDANO_NETWORK_NAMES:
+            raise HTTPException(400, f"cardano_network must be one of {CARDANO_NETWORK_NAMES}")
         se = store.sign_embed_dir(job_id)
         if not se.is_dir():
             raise HTTPException(404, f"job {job_id} not found")
@@ -358,6 +369,8 @@ def build_app(
             cardano_dir=anchor_dir,
             epoch=epoch,
             record_type=record_type,
+            cardano_backend=cardano_backend,
+            cardano_network=cardano_network,
         )
         return JSONResponse({
             "tx_hash": result.receipt.chain_evidence["tx_hash"],

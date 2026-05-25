@@ -6,12 +6,13 @@ Subcommands:
 - ``openwater sign-embed``   — sign + embed; persists key, manifest store, watermarked PNG
 - ``openwater verify``       — verify a watermarked PNG against persisted key + manifest store
 - ``openwater inspect``      — extract locator only, no manifest fetch
-- ``openwater poc``          — run watermark + fake storage + mock Cardano POC
+- ``openwater poc``          — run watermark + storage + Cardano POC
 
 The CLI is intentionally narrow. It targets the Version-1 surface from
 the OpenWater implementation-time estimates: image-only, FULL160 pointer,
-reference watermark carriers, local/fake manifest stores, local key file,
-and mock Cardano metadata anchors. Real network backends are future phases.
+reference watermark carriers, local/fake/real manifest stores, local key file,
+and mock or Blockfrost Cardano metadata anchors. Real network backends are
+opt-in and require environment configuration.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ import json
 import sys
 from pathlib import Path
 
+from .cardano import CARDANO_BACKEND_NAMES, CARDANO_NETWORK_NAMES
 from .pipeline import (
     DEFAULT_PROFILE,
     PROFILE_NAMES,
@@ -132,6 +134,8 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
         cardano_dir=args.out,
         epoch=args.epoch,
         record_type=args.record_type,
+        cardano_backend=args.cardano_backend,
+        cardano_network=args.cardano_network,
     )
     print(f"anchor_record={result.anchor_record_path}")
     print(f"receipt={result.receipt_path}")
@@ -147,6 +151,8 @@ def _cmd_verify_anchor(args: argparse.Namespace) -> int:
     result = verify_anchor_dir(
         cardano_dir=args.cardano_dir,
         min_confirmations=args.min_confirmations,
+        cardano_backend=args.cardano_backend,
+        cardano_network=args.cardano_network,
     )
     if args.report:
         args.report.write_text(json.dumps({
@@ -168,6 +174,8 @@ def _cmd_poc(args: argparse.Namespace) -> int:
         storage_backend=args.storage,
         profile=args.profile,
         epoch=args.epoch,
+        cardano_backend=args.cardano_backend,
+        cardano_network=args.cardano_network,
     )
     print(
         f"profile={result.profile}  "
@@ -211,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     pse.add_argument("--out", type=Path, required=True,
                      help="output directory; will contain watermarked.png, key.json, manifests/, manifest_key.txt, storage_uri.txt")
     pse.add_argument("--storage", choices=BACKEND_NAMES, default="local",
-                     help="manifest-store backend (default: local). fake-arweave/fake-ipfs emit realistic txid/CID shapes without network calls.")
+                     help="manifest-store backend (default: local). fake-* backends do not make network calls; arweave-gateway/ipfs-daemon require configuration.")
     pse.add_argument("--profile", choices=PROFILE_NAMES, default=DEFAULT_PROFILE,
                      help=f"watermark carrier profile (default: {DEFAULT_PROFILE})")
     pse.set_defaults(func=_cmd_sign_embed)
@@ -241,7 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     # anchor
     pa = sub.add_parser(
         "anchor",
-        help="publish a Cardano metadata anchor for a sign-embed output (mock backend)",
+        help="publish a Cardano metadata anchor for a sign-embed output",
     )
     pa.add_argument("sign_embed_dir", type=Path,
                     help="directory produced by `openwater sign-embed`")
@@ -251,6 +259,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="monotonic anchor epoch (default 0)")
     pa.add_argument("--record-type", default="manifest_root",
                     help="anchor record type label (default: manifest_root)")
+    pa.add_argument("--cardano-backend", choices=CARDANO_BACKEND_NAMES, default="mock",
+                    help="Cardano backend (default: mock)")
+    pa.add_argument("--cardano-network", choices=CARDANO_NETWORK_NAMES, default=None,
+                    help="Cardano network for blockfrost backend (default: OPENWATER_CARDANO_NETWORK or preprod)")
     pa.set_defaults(func=_cmd_anchor)
 
     # serve
@@ -267,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     # verify-anchor
     pva = sub.add_parser(
         "verify-anchor",
-        help="re-verify a Cardano metadata anchor against the local mock ledger",
+        help="re-verify a Cardano metadata anchor",
     )
     pva.add_argument("cardano_dir", type=Path,
                      help="directory produced by `openwater anchor`")
@@ -275,12 +287,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="minimum block confirmations required (default: 1)")
     pva.add_argument("--report", type=Path, default=None,
                      help="optional path to write a JSON verification report")
+    pva.add_argument("--cardano-backend", choices=CARDANO_BACKEND_NAMES, default=None,
+                     help="Cardano backend (default: infer from receipt)")
+    pva.add_argument("--cardano-network", choices=CARDANO_NETWORK_NAMES, default=None,
+                     help="Cardano network for blockfrost backend (default: receipt/env/preprod)")
     pva.set_defaults(func=_cmd_verify_anchor)
 
     # POC
     pp = sub.add_parser(
         "poc",
-        help="run the Ben-task POC: watermark, fake decentralized storage, verify, mock Cardano anchor",
+        help="run the Ben-task POC: watermark, decentralized storage, verify, Cardano anchor",
     )
     pp.add_argument("--input", type=Path, default=None,
                     help="input PNG (default: synthetic sample)")
@@ -291,7 +307,11 @@ def build_parser() -> argparse.ArgumentParser:
     pp.add_argument("--profile", choices=PROFILE_NAMES, default="alpha_lsb",
                     help="watermark carrier profile (default: alpha_lsb for full verification)")
     pp.add_argument("--epoch", type=int, default=0,
-                    help="mock Cardano anchor epoch (default 0)")
+                    help="Cardano anchor epoch (default 0)")
+    pp.add_argument("--cardano-backend", choices=CARDANO_BACKEND_NAMES, default="mock",
+                    help="Cardano backend (default: mock)")
+    pp.add_argument("--cardano-network", choices=CARDANO_NETWORK_NAMES, default=None,
+                    help="Cardano network for blockfrost backend (default: OPENWATER_CARDANO_NETWORK or preprod)")
     pp.set_defaults(func=_cmd_poc)
 
     return p

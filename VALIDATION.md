@@ -1,8 +1,9 @@
 # Validation How-To
 
 This document validates the private-alpha OpenWater POC: watermarking,
-manifest verification, fake decentralized storage, and mock Cardano anchoring.
-It does not validate real Arweave/IPFS/Cardano network submission.
+manifest verification, fake decentralized storage, mock Cardano anchoring, and
+the offline seams for real IPFS/Arweave/Cardano backends. Live network
+validation requires the credentials and services listed below.
 
 ## Environment
 
@@ -59,11 +60,54 @@ Required report markers:
 These markers are mandatory so private-alpha reports are not confused with
 real chain evidence.
 
+## Real Network Checks
+
+IPFS daemon:
+
+```bash
+export OPENWATER_IPFS_API_URL=http://127.0.0.1:5001
+export OPENWATER_IPFS_GATEWAY_URL=http://127.0.0.1:8080/ipfs
+openwater sign-embed --profile alpha_lsb --storage ipfs-daemon --out /tmp/openwater-ipfs-real
+openwater verify /tmp/openwater-ipfs-real/watermarked.png \
+  --profile alpha_lsb \
+  --manifest-store /tmp/openwater-ipfs-real/manifests \
+  --key /tmp/openwater-ipfs-real/key.json
+```
+
+Arweave gateway/upload command:
+
+```bash
+export OPENWATER_ARWEAVE_GATEWAY_URL=https://arweave.net
+export OPENWATER_ARWEAVE_UPLOAD_COMMAND='your-uploader {path}'
+openwater sign-embed --profile alpha_lsb --storage arweave-gateway --out /tmp/openwater-ar-real
+```
+
+The uploader must print `ar://<txid>`, a gateway URL, or a bare 43-character
+txid. Arweave does not have a standard public testnet; use the uploader's
+devnet/test wallet flow if available.
+
+Cardano preprod via Blockfrost:
+
+```bash
+export BLOCKFROST_PROJECT_ID=preprod...
+export OPENWATER_CARDANO_NETWORK=preprod
+export OPENWATER_CARDANO_PAYMENT_SKEY=/secure/path/payment.skey
+export OPENWATER_CARDANO_PAYMENT_ADDRESS=addr_test...
+openwater anchor /tmp/openwater-ipfs-real --out /tmp/openwater-cardano-real \
+  --cardano-backend blockfrost --cardano-network preprod
+openwater verify-anchor /tmp/openwater-cardano-real \
+  --cardano-backend blockfrost --cardano-network preprod
+```
+
+Expected live-report markers: `real_network: true` when the POC is run with
+real storage or `--cardano-backend blockfrost`; `cardano_backend:
+"blockfrost_cardano"` for real Cardano receipts.
+
 ## Automated Checks
 
 ```bash
 bash -n scripts/setup.sh scripts/demo.sh
-.venv/bin/python -m py_compile openwater_mk/pipeline.py openwater_mk/cli.py
+.venv/bin/python -m py_compile openwater_mk/storage.py openwater_mk/cardano.py openwater_mk/pipeline.py openwater_mk/cli.py
 .venv/bin/python -m pytest tests/test_demo.py tests/test_cli.py tests/test_storage.py tests/test_cardano.py tests/test_watermark_robust.py -q
 .venv/bin/python -m pytest tests/oprow_upstream -q
 ```

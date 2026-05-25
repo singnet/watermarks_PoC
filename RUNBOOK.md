@@ -195,10 +195,13 @@ Talking points:
   monotonically-increasing `slot`. `verify-anchor` re-derives the
   anchor record hash, fetches the tx from the ledger, and asserts
   every metadata field matches.
-- Real backend swap is one class:
-  `BlockfrostCardanoBackend` is wired with the exact `requests` /
-  `pycardano` calls in `openwater_mk/cardano.py`. It raises
-  `NotImplementedError` today because it needs a funded wallet.
+- Real backend path:
+  `BlockfrostCardanoBackend` fetches via Blockfrost HTTP and submits via
+  `pycardano` when `BLOCKFROST_PROJECT_ID`,
+  `OPENWATER_CARDANO_PAYMENT_SKEY`, and
+  `OPENWATER_CARDANO_PAYMENT_ADDRESS` are configured. Use
+  `--cardano-backend blockfrost --cardano-network preprod` for testnet
+  validation.
 
 ### 4c. Pluggable storage backends — Arweave and IPFS shapes today
 
@@ -212,11 +215,10 @@ cat /tmp/run-ipfs/storage_uri.txt      # ipfs://<base32 CIDv1>
 
 Talking point: the `fake-*` backends emit the right identifier shapes
 without making any network calls — they persist manifest bytes to a local
-fanout directory keyed by a deterministic hash. Real Arweave / IPFS
-adapters (`ArweaveGatewayStore`, `IPFSDaemonStore`) are stubbed in
-`openwater_mk/storage.py` with the exact wiring needed once a funded
-wallet (Arweave) or a daemon / Pinata / web3.storage credentials (IPFS)
-are available. The pipeline does not care which backend it is talking to.
+fanout directory keyed by a deterministic hash. Real adapters are opt-in:
+`IPFSDaemonStore` calls a local Kubo API, and `ArweaveGatewayStore` reads via
+gateway while delegating uploads to `OPENWATER_ARWEAVE_UPLOAD_COMMAND`.
+The pipeline does not care which backend it is talking to.
 
 Demo `verify` against multiple stores in order (an IPFS cache then
 Arweave durable storage, for example):
@@ -254,9 +256,10 @@ rm -rf out/watermarked.png out/verify_report.json out/transformed_*
    but cannot round-trip PED-IMG-1 essence in V0 because the essence is
    exact-hash and the carrier perturbs Y. `dct_qim_robust` is a
    structural template, not a current robustness win.
-2. **No real chain anchor yet.** The demo has local fake Arweave/IPFS
-   stores and a mock Cardano ledger. Real uploads and transactions are
-   still future integration work.
+2. **Real networks are opt-in.** The default demo has local fake
+   Arweave/IPFS stores and a mock Cardano ledger. Real IPFS, Arweave, and
+   Blockfrost paths require external daemons, uploader commands, funded testnet
+   wallets, and credentials.
 3. **Local trust policy only.** No transparency log, no trust bundle from
    a registry, no key transparency. The verifier accepts the local
    ephemeral key as trusted for demo purposes only.

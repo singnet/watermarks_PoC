@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -316,7 +317,10 @@ def build_app(
         se = store.sign_embed_dir(job_id)
         if not se.is_dir():
             raise HTTPException(404, f"job {job_id} not found")
-        upload_path = store.job_dir(job_id) / "uploaded.png"
+        upload_id = uuid.uuid4().hex
+        upload_dir = store.job_dir(job_id) / "uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        upload_path = upload_dir / f"{upload_id}.png"
         upload_path.write_bytes(await file.read())
         report = _verify_response(
             job_id=job_id,
@@ -325,7 +329,8 @@ def build_app(
             key_path=se / "key.json",
             profile=_job_profile(se),
         )
-        store.save_verify_report(job_id, report)
+        report["upload_id"] = upload_id
+        report["report_scope"] = "uploaded"
         return JSONResponse(report)
 
     @app.get("/jobs/{job_id}/report.json")

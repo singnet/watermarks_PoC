@@ -584,9 +584,13 @@ def run_poc(
 
     tx_hash = str(anchor_result.receipt.chain_evidence["tx_hash"])
     metadata_label = int(anchor_result.receipt.metadata_label)
+    storage_is_fake = storage_backend.startswith("fake-")
+    cardano_backend = anchor_result.receipt.backend
     report = {
         "profile": profile,
+        "real_network": False,
         "storage_backend": storage_backend,
+        "storage_is_fake": storage_is_fake,
         "storage_uri": sign_result.storage_uri,
         "manifest_key": sign_result.manifest_key_hex,
         "watermarked_path": str(sign_result.watermarked_path),
@@ -594,6 +598,8 @@ def run_poc(
         "anchor_record": str(anchor_result.anchor_record_path),
         "anchor_receipt": str(anchor_result.receipt_path),
         "anchor_metadata": str(anchor_result.metadata_path),
+        "cardano_backend": cardano_backend,
+        "cardano_is_mock": cardano_backend == "mock_cardano",
         "verified": verify_result.verified,
         "extraction_status": verify_result.extraction_status,
         "verification_status": verify_result.verification_status,

@@ -84,12 +84,16 @@ def test_poc_subcommand_runs_storage_verify_anchor_roundtrip(tmp_path: Path) -> 
 
     report = json.loads((workdir / "poc_report.json").read_text())
     assert report["profile"] == "alpha_lsb"
+    assert report["real_network"] is False
     assert report["storage_backend"] == "fake-arweave"
+    assert report["storage_is_fake"] is True
     assert report["storage_uri"].startswith("ar://")
     assert report["verified"] is True
     assert report["extraction_status"] == "extracted"
     assert report["verification_status"] == "verified"
     assert report["anchor_ok"] is True
+    assert report["cardano_backend"] == "mock_cardano"
+    assert report["cardano_is_mock"] is True
     assert report["metadata_label"] == 40961
     assert len(report["tx_hash"]) == 64
     assert (workdir / "sign_embed" / "watermarked.png").exists()

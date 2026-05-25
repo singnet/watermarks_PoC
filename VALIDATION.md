@@ -114,8 +114,30 @@ bash -n scripts/setup.sh scripts/demo.sh
 
 Current expected results:
 
-- local non-web suite: 79 passing
+- local non-web suite: 85 passing
 - vendored upstream suite: 85 passing
+
+## Latest Branch Run
+
+Captured on branch `real-testnet-backends` after adding the real-network
+backend seams:
+
+```bash
+.venv/bin/python -m py_compile openwater_mk/storage.py openwater_mk/cardano.py openwater_mk/pipeline.py openwater_mk/cli.py openwater_mk/web/server.py openwater_mk/web/templates.py tests/test_storage.py tests/test_cardano.py
+.venv/bin/python -m pytest tests/test_demo.py tests/test_cli.py tests/test_storage.py tests/test_cardano.py tests/test_watermark_robust.py -q
+.venv/bin/python -m pytest tests/oprow_upstream -q
+.venv/bin/python -m openwater_mk.cli poc --out /tmp/openwater-real-backend-smoke
+```
+
+Observed results:
+
+- local non-web suite: `85 passed`
+- vendored upstream suite: `85 passed`
+- default POC smoke: `verified=True`, `extraction=extracted`,
+  `verification=verified`, `anchor_ok=True`
+- smoke report markers: `real_network=false`, `storage_is_fake=true`,
+  `storage_is_real=false`, `cardano_backend="mock_cardano"`,
+  `cardano_is_mock=true`
 
 If `shellcheck` is installed, also run:
 
@@ -133,3 +155,7 @@ Run web tests only on Python 3.11-3.13:
 
 Do not treat a Python 3.14 FastAPI/TestClient failure as a POC regression;
 3.14 is outside the supported matrix for this branch.
+
+In the latest branch run, `timeout 60s .venv/bin/python -m pytest
+tests/test_web.py -q` exited with code `124` under Python 3.14.4, matching the
+unsupported-matrix caveat above.

@@ -84,7 +84,7 @@ Required markers:
 
 Expected on `main`:
 
-- local non-web suite: `79 passed`
+- local non-web suite: `78 passed`
 - vendored upstream suite: `85 passed`
 
 Optional shell lint:

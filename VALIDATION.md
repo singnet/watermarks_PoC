@@ -14,7 +14,8 @@ matrix for this branch.
 ```
 
 Setup creates `.venv/`, installs the local package, and runs the vendored
-OProW smoke suite. A final line like `85 passed` means setup completed.
+OProW smoke suite. The pytest summary should include `85 passed`, followed by
+`Setup complete. Activate with:  . .venv/bin/activate`.
 
 ## Main Demo Checks
 

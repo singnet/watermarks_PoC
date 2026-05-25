@@ -94,6 +94,31 @@ def test_verify_uploaded_image_rejected_when_tampered(client: TestClient) -> Non
     assert r.status_code == 200
     body = r.json()
     assert body["verified"] is False
+    assert body["report_scope"] == "uploaded"
+    assert body["upload_id"]
+
+
+def test_uploaded_verify_does_not_replace_canonical_report(client: TestClient) -> None:
+    """Verifying an arbitrary upload must not overwrite the job self-report."""
+    job_id = _new_job(client)
+
+    buf = BytesIO()
+    Image.new("RGB", (64, 64), color=(0, 0, 0)).save(buf, format="PNG")
+    buf.seek(0)
+
+    r = client.post(
+        "/verify",
+        data={"job_id": job_id},
+        files={"file": ("attack.png", buf, "image/png")},
+    )
+    assert r.status_code == 200
+    assert r.json()["verified"] is False
+
+    canonical = client.get(f"/jobs/{job_id}/report.json")
+    assert canonical.status_code == 200
+    body = canonical.json()
+    assert body["verified"] is True
+    assert body["job_id"] == job_id
 
 
 def test_report_html_renders_status_chip(client: TestClient) -> None:

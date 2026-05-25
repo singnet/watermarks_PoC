@@ -4,11 +4,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if [[ ! -d .venv ]]; then
+if [[ ! -x .venv/bin/python ]]; then
   echo "No .venv found. Run scripts/setup.sh first." >&2
   exit 1
 fi
 
-# shellcheck source=/dev/null
-. .venv/bin/activate
-openwater demo "$@"
+exec .venv/bin/python -m openwater_mk.cli demo "$@"

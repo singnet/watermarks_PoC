@@ -1,3 +1,6 @@
+# Pinned dev/test environment. Keep in sync with pyproject.toml's
+# supported Python range (>=3.11,<3.14); the current FastAPI/TestClient
+# stack is not accepted on Python 3.14 until verified separately.
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.13.0

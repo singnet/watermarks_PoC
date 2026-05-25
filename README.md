@@ -40,6 +40,10 @@ which is **vendored in this repo** under `./oprow/`. No sibling checkout
 needed. Source provenance for the vendored copy is documented in
 [vendor/oprow_docs/VENDORING.md](vendor/oprow_docs/VENDORING.md).
 
+Use Python 3.11-3.13 for local development. The pinned FastAPI/TestClient
+test stack is not accepted on Python 3.14 until that combination is
+verified separately.
+
 ### Run
 
 ```bash
@@ -101,6 +105,9 @@ openwater-demo/
 ├── tests/
 │   ├── test_demo.py        # in-process pipeline
 │   ├── test_cli.py         # CLI surface
+│   ├── test_storage.py     # local/fake Arweave/fake IPFS stores
+│   ├── test_cardano.py     # mock Cardano metadata anchor
+│   ├── test_web.py         # FastAPI surface
 │   └── oprow_upstream/     # vendored oprow test suite (85 cases)
 ├── vendor/oprow_docs/      # upstream README_STEP*.md + VENDORING.md
 ├── demo_internal.py        # legacy shim → `openwater demo`

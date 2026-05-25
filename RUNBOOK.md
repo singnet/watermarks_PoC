@@ -10,8 +10,9 @@ cd openwater-demo
 ```
 
 This creates `.venv/`, installs the demo (the oprow Version 0 SDK is
-vendored in-tree under `./oprow/`), and runs its 85-case test suite as a
-smoke check.
+vendored in-tree under `./oprow/`), and runs the 85-case vendored upstream
+test suite as a smoke check. Use Python 3.11-3.13; Python 3.14 is not part
+of the supported test matrix yet.
 
 ## The demo
 
@@ -78,11 +79,16 @@ implementation-time-estimates doc and is not on the path to first alpha.
 ### 4. Tests as living acceptance criteria
 
 ```bash
-.venv/bin/python -m pytest tests/ -v
+.venv/bin/python -m pytest tests/test_demo.py tests/test_cli.py tests/test_storage.py tests/test_cardano.py -v
+.venv/bin/python -m pytest tests/test_web.py -v
+.venv/bin/python -m pytest tests/oprow_upstream -v
 ```
 
-Should show 7 passing in under a second. These pin the security-boundary
-and robustness expectations so future changes cannot silently regress.
+The first command is the core local acceptance suite; on the current main
+branch it should show 38 passing. The web suite exercises FastAPI via
+`TestClient` and requires the supported Python/dependency range from
+`pyproject.toml`. The upstream suite verifies the vendored OProW reference
+SDK behavior.
 
 ### 4b. Cross-process workflow (closer to the V1 shape)
 
@@ -191,7 +197,7 @@ rm -rf out/watermarked.png out/verify_report.json out/transformed_*
 | Thing | Path |
 | --- | --- |
 | Orchestration | `demo_internal.py` (`run_demo()` is the entry function) |
-| Tests | `tests/test_demo.py` |
+| Tests | `tests/test_demo.py`, `tests/test_cli.py`, `tests/test_storage.py`, `tests/test_cardano.py`, `tests/test_web.py` |
 | Upstream oprow SDK | `./oprow/` (vendored; see `vendor/oprow_docs/VENDORING.md`) |
 | Sample outputs | `out/_tamper_sample/`, `out/_transform_samples/<name>/` |
 | Design doc | `../OpenWater_Comprehensive_Design.pdf` (74 pages) |
@@ -202,9 +208,9 @@ rm -rf out/watermarked.png out/verify_report.json out/transformed_*
 
 1. **Reference-grade watermark.** Alpha-LSB is fragile by design. It exists
    so the rest of the stack can be demoed; production carriers are V8 work.
-2. **No chain anchor yet.** Manifests live in an in-process MemoryCAS.
-   Arweave/IPFS storage and Cardano metadata anchors are the next two
-   phases (V1 path per estimates doc).
+2. **No real chain anchor yet.** The demo has local fake Arweave/IPFS
+   stores and a mock Cardano ledger. Real uploads and transactions are
+   still future integration work.
 3. **Local trust policy only.** No transparency log, no trust bundle from
    a registry, no key transparency. The verifier accepts the local
    ephemeral key as trusted for demo purposes only.

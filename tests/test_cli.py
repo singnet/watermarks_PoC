@@ -77,6 +77,25 @@ def test_sign_embed_then_verify_roundtrip_alpha_lsb(tmp_path: Path) -> None:
     assert report["verified"] is True
 
 
+def test_poc_subcommand_runs_storage_verify_anchor_roundtrip(tmp_path: Path) -> None:
+    workdir = tmp_path / "poc"
+    rc = cli_main(["poc", "--out", str(workdir)])
+    assert rc == 0
+
+    report = json.loads((workdir / "poc_report.json").read_text())
+    assert report["profile"] == "alpha_lsb"
+    assert report["storage_backend"] == "fake-arweave"
+    assert report["storage_uri"].startswith("ar://")
+    assert report["verified"] is True
+    assert report["extraction_status"] == "extracted"
+    assert report["verification_status"] == "verified"
+    assert report["anchor_ok"] is True
+    assert report["metadata_label"] == 40961
+    assert len(report["tx_hash"]) == 64
+    assert (workdir / "sign_embed" / "watermarked.png").exists()
+    assert (workdir / "cardano" / "receipt.json").exists()
+
+
 def test_inspect_extracts_locator_alpha_lsb(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     workdir = tmp_path / "ins"
     cli_main(["sign-embed", "--profile", "alpha_lsb", "--out", str(workdir)])

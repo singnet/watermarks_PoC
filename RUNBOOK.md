@@ -19,13 +19,13 @@ of the supported test matrix yet.
 ### 1. Healthy path — sign, embed, verify (in-process)
 
 ```bash
-./scripts/demo.sh
-# equivalent: openwater demo
+./scripts/demo.sh --profile alpha_lsb
+# equivalent: openwater demo --profile alpha_lsb
 ```
 
 Expected last line:
 ```
-verified=True  extraction=extracted  verification=verified  report=out/verify_report.json
+profile=alpha_lsb  verified=True  extraction=extracted  verification=verified  report=out/verify_report.json
 ```
 
 Then show:
@@ -46,12 +46,12 @@ Talking points:
 ### 2. Security boundary — copy/paste / tamper attack
 
 ```bash
-./scripts/demo.sh --tamper
+./scripts/demo.sh --profile alpha_lsb --tamper
 ```
 
 Expected:
 ```
-verified=False  extraction=extracted  verification=content_mismatch
+profile=alpha_lsb  verified=False  extraction=extracted  verification=content_mismatch
 ```
 
 Talking point: **locator recovery is not proof of provenance.** The alpha
@@ -125,6 +125,25 @@ openwater verify /tmp/run1/watermarked.png \
 Talking point: this is the shape the real product will use. The
 trust-policy and key-resolver pieces will move from a local JSON envelope
 to a registry-backed lookup. The CLI surface stays the same.
+
+### 4f. Ben-task POC in one command
+
+```bash
+openwater poc --out /tmp/openwater-poc
+cat /tmp/openwater-poc/poc_report.json
+```
+
+Expected:
+```
+verified=True  extraction=extracted  verification=verified  anchor_ok=True
+```
+
+Talking point: this is the compact POC Ben asked for. It signs and
+watermarks an image, stores the manifest under a fake Arweave-shaped URI,
+verifies the artifact against that store, publishes a mock Cardano metadata
+anchor, verifies the anchor, and writes a single JSON summary. It proves the
+decentralized provenance shape without requiring funded wallets or network
+services.
 
 ### 4e. openwater.mk hosted service (local FastAPI)
 

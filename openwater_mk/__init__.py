@@ -19,6 +19,7 @@ from .cardano import (
 from .pipeline import (
     DEFAULT_PROFILE,
     PROFILE_NAMES,
+    PocResult,
     SignEmbedResult,
     VerifyResult,
     anchor_sign_embed_output,
@@ -26,6 +27,7 @@ from .pipeline import (
     inspect_only,
     register_profile,
     run_demo,
+    run_poc,
     sign_and_embed,
     verify,
     verify_anchor_dir,
@@ -53,6 +55,7 @@ from .watermark_robust import (
 __all__ = [
     "SignEmbedResult",
     "VerifyResult",
+    "PocResult",
     "TRANSFORMS",
     "RobustDCTQIMImageWatermarkProfile",
     "IMG_DCT_QIM_ROBUST_ALG_ID",
@@ -65,6 +68,7 @@ __all__ = [
     "store_from_spec",
     "detect_backend",
     "run_demo",
+    "run_poc",
     "sign_and_embed",
     "embed_only",
     "verify",

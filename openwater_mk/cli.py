@@ -6,11 +6,12 @@ Subcommands:
 - ``openwater sign-embed``   — sign + embed; persists key, manifest store, watermarked PNG
 - ``openwater verify``       — verify a watermarked PNG against persisted key + manifest store
 - ``openwater inspect``      — extract locator only, no manifest fetch
+- ``openwater poc``          — run watermark + fake storage + mock Cardano POC
 
 The CLI is intentionally narrow. It targets the Version-1 surface from
 the OpenWater implementation-time estimates: image-only, FULL160 pointer,
-alpha-LSB reference carrier, local FileCAS manifest store, local key file.
-Arweave/IPFS storage and Cardano metadata anchors are future phases.
+reference watermark carriers, local/fake manifest stores, local key file,
+and mock Cardano metadata anchors. Real network backends are future phases.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from .pipeline import (
     anchor_sign_embed_output,
     inspect_only,
     run_demo,
+    run_poc,
     sign_and_embed,
     verify,
     verify_anchor_dir,
@@ -159,6 +161,27 @@ def _cmd_verify_anchor(args: argparse.Namespace) -> int:
     return 1
 
 
+def _cmd_poc(args: argparse.Namespace) -> int:
+    result = run_poc(
+        input_path=args.input,
+        out_dir=args.out,
+        storage_backend=args.storage,
+        profile=args.profile,
+        epoch=args.epoch,
+    )
+    print(
+        f"profile={result.profile}  "
+        f"storage={result.storage_backend}  "
+        f"verified={result.verified}  "
+        f"extraction={result.extraction_status}  "
+        f"verification={result.verification_status}  "
+        f"anchor_ok={result.anchor_ok}  "
+        f"tx_hash={result.tx_hash}  "
+        f"report={result.poc_report_path}"
+    )
+    return 0 if result.verified and result.anchor_ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="openwater",
@@ -253,6 +276,23 @@ def build_parser() -> argparse.ArgumentParser:
     pva.add_argument("--report", type=Path, default=None,
                      help="optional path to write a JSON verification report")
     pva.set_defaults(func=_cmd_verify_anchor)
+
+    # POC
+    pp = sub.add_parser(
+        "poc",
+        help="run the Ben-task POC: watermark, fake decentralized storage, verify, mock Cardano anchor",
+    )
+    pp.add_argument("--input", type=Path, default=None,
+                    help="input PNG (default: synthetic sample)")
+    pp.add_argument("--out", type=Path, default=Path("out/poc"),
+                    help="output directory (default: out/poc)")
+    pp.add_argument("--storage", choices=BACKEND_NAMES, default="fake-arweave",
+                    help="manifest-store backend (default: fake-arweave)")
+    pp.add_argument("--profile", choices=PROFILE_NAMES, default="alpha_lsb",
+                    help="watermark carrier profile (default: alpha_lsb for full verification)")
+    pp.add_argument("--epoch", type=int, default=0,
+                    help="mock Cardano anchor epoch (default 0)")
+    pp.set_defaults(func=_cmd_poc)
 
     return p
 

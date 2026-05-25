@@ -8,24 +8,28 @@ Minimal runnable end-to-end demo of the OpenWater provenance watermark stack,
 built on top of the `oprow` Version-0 reference SDK (vendored in-tree under
 `./oprow/`; see [vendor/oprow_docs/VENDORING.md](vendor/oprow_docs/VENDORING.md)).
 
-**Scope:** internal demo only. Image-only. Local CAS. Local Ed25519 keys.
+**Scope:** internal demo only. Image-only. Local Ed25519 keys.
+Local/fake Arweave/IPFS manifest stores and a mock Cardano metadata anchor
+provide the decentralized provenance shape without making network calls.
 Three reference watermark carriers selectable via `--profile`:
 `alpha_lsb` (lossless PNG only), `dct_qim` (default; JPEG-robust
 locator), `dct_qim_robust` (5-coefficient spectral spread, same JPEG
 profile as the reference on the demo corpus, structural template for
-production tuning). No Arweave/IPFS, no Cardano anchor, no Rholang, no
-Hyperon. Those land in V1+ per the OpenWater roadmap.
+production tuning). Real Arweave/IPFS uploads, real Cardano transactions,
+Rholang, and Hyperon land in V1+ per the OpenWater roadmap.
 
 ## What this shows
 
 1. Sign a manifest binding artifact essence (PED-IMG-1) + creation claims
    with an Ed25519 key.
-2. Embed the manifest locator into the artifact via alpha-LSB carrier.
+2. Embed the manifest locator into the artifact via the selected watermark carrier.
 3. Persist watermarked PNG to disk.
 4. Extract the locator from the watermarked image, resolve the manifest from
    a local content-addressed store, verify signature + essence binding +
    local trust policy.
-5. Emit a JSON verification report.
+5. Optionally persist the manifest through fake Arweave/IPFS-shaped stores
+   and publish a mock Cardano metadata anchor.
+6. Emit JSON verification and POC reports.
 
 The security boundary, per the OpenWater design doc:
 
@@ -51,7 +55,9 @@ verified separately.
 
 ```bash
 ./scripts/setup.sh          # create .venv, install demo (oprow vendored in-tree)
-./scripts/demo.sh           # run end-to-end demo with synthetic image
+./scripts/demo.sh           # default dct_qim locator demo with synthetic image
+./scripts/demo.sh --profile alpha_lsb  # full essence-verification path
+.venv/bin/python -m openwater_mk.cli poc --out /tmp/openwater-poc
 ls out/                     # watermarked.png, verify_report.json
 ```
 
@@ -67,7 +73,13 @@ openwater demo --profile alpha_lsb --transform png_rgb   # alpha stripped: locat
 openwater demo --profile alpha_lsb --transform jpeg_q82  # lossy: locator dies
 openwater demo --profile dct_qim --transform jpeg_q60    # JPEG-robust: locator survives
 openwater demo --profile dct_qim_robust --transform jpeg_cascade_85_70  # spectral spread
+openwater poc --out /tmp/openwater-poc      # watermark + fake Arweave + mock Cardano POC
 ```
+
+`openwater poc` is the Ben-task acceptance path: it signs and watermarks an
+image, stores the manifest in a fake Arweave-shaped backend by default,
+verifies the watermarked artifact, anchors the manifest commitment in the
+mock Cardano ledger, verifies that anchor, and writes `poc_report.json`.
 
 For a cross-process round-trip (sign-and-embed in one shot, verify later
 against persisted artifacts):

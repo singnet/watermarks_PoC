@@ -251,6 +251,26 @@ class VerifyResult:
     report: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PocResult:
+    out_dir: Path
+    sign_embed_dir: Path
+    cardano_dir: Path
+    verify_report_path: Path
+    poc_report_path: Path
+    profile: str
+    storage_backend: str
+    storage_uri: str
+    manifest_key_hex: str
+    verified: bool
+    extraction_status: str
+    verification_status: str | None
+    anchor_ok: bool
+    tx_hash: str
+    metadata_label: int
+    report: dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -518,6 +538,92 @@ def verify_anchor_dir(
         receipt=receipt,
         backend=backend,
         min_confirmations=min_confirmations,
+    )
+
+
+def run_poc(
+    *,
+    input_path: Path | None = None,
+    out_dir: Path = Path("out/poc"),
+    storage_backend: str = "fake-arweave",
+    profile: str = "alpha_lsb",
+    epoch: int = 0,
+) -> PocResult:
+    """Run the Ben-task POC: watermark, store, verify, anchor, re-verify.
+
+    Defaults to ``alpha_lsb`` because the POC acceptance condition is full
+    provenance verification plus a mock Cardano anchor. DCT-QIM profiles are
+    available elsewhere for locator-survival demos, but V0 PED-IMG-1 exact
+    hashing means they intentionally report ``content_mismatch``.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sign_embed_dir = out_dir / "sign_embed"
+    cardano_dir = out_dir / "cardano"
+
+    sign_result = sign_and_embed(
+        input_path=input_path,
+        out_dir=sign_embed_dir,
+        storage_backend=storage_backend,
+        profile=profile,
+    )
+    verify_result = verify(
+        watermarked_path=sign_result.watermarked_path,
+        manifest_stores=sign_result.manifest_store,
+        key_envelope_path=sign_result.key_path,
+        profile=profile,
+    )
+    verify_report_path = out_dir / "verify_report.json"
+    verify_report_path.write_text(json.dumps(verify_result.report, indent=2))
+
+    anchor_result = anchor_sign_embed_output(
+        sign_embed_dir=sign_embed_dir,
+        cardano_dir=cardano_dir,
+        epoch=epoch,
+    )
+    anchor_verification = verify_anchor_dir(cardano_dir=cardano_dir)
+
+    tx_hash = str(anchor_result.receipt.chain_evidence["tx_hash"])
+    metadata_label = int(anchor_result.receipt.metadata_label)
+    report = {
+        "profile": profile,
+        "storage_backend": storage_backend,
+        "storage_uri": sign_result.storage_uri,
+        "manifest_key": sign_result.manifest_key_hex,
+        "watermarked_path": str(sign_result.watermarked_path),
+        "verify_report": str(verify_report_path),
+        "anchor_record": str(anchor_result.anchor_record_path),
+        "anchor_receipt": str(anchor_result.receipt_path),
+        "anchor_metadata": str(anchor_result.metadata_path),
+        "verified": verify_result.verified,
+        "extraction_status": verify_result.extraction_status,
+        "verification_status": verify_result.verification_status,
+        "locator_mode": verify_result.locator_mode,
+        "anchor_ok": anchor_verification.ok,
+        "anchor_failures": list(anchor_verification.failures),
+        "tx_hash": tx_hash,
+        "metadata_label": metadata_label,
+        "confirmations": anchor_verification.chain_evidence.get("confirmations"),
+    }
+    poc_report_path = out_dir / "poc_report.json"
+    poc_report_path.write_text(json.dumps(report, indent=2))
+
+    return PocResult(
+        out_dir=out_dir,
+        sign_embed_dir=sign_embed_dir,
+        cardano_dir=cardano_dir,
+        verify_report_path=verify_report_path,
+        poc_report_path=poc_report_path,
+        profile=profile,
+        storage_backend=storage_backend,
+        storage_uri=sign_result.storage_uri,
+        manifest_key_hex=sign_result.manifest_key_hex,
+        verified=verify_result.verified,
+        extraction_status=verify_result.extraction_status,
+        verification_status=verify_result.verification_status,
+        anchor_ok=anchor_verification.ok,
+        tx_hash=tx_hash,
+        metadata_label=metadata_label,
+        report=report,
     )
 
 

@@ -35,7 +35,7 @@ def render_index() -> str:
   <p class="subtitle">Internal demo of the OpenWater provenance stack.</p>
   <div class="card">
     <p><span class="pill pill-warn">DEMO</span>
-      Reference (alpha-LSB) watermark only. Local storage. Mock Cardano anchor.</p>
+      Reference watermark profiles. Local/fake storage. Mock Cardano anchor.</p>
   </div>
   <h2>Endpoints</h2>
   <ul>
@@ -95,7 +95,7 @@ def render_verify_report_html(report: dict[str, Any]) -> str:
 manifest from a trusted key. It does <strong>not</strong> mean the events
 depicted in the artifact are true. It also does not protect against
 out-of-band recompression by hostile channels &mdash; the reference
-alpha-LSB carrier is brittle by design.</p>
+carriers are demo-grade and not proof of real-world robustness.</p>
 </body>
 </html>
 """

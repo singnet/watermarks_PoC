@@ -51,6 +51,9 @@ Use Python 3.11-3.13 for local development. The pinned FastAPI/TestClient
 test stack is not accepted on Python 3.14 until that combination is
 verified separately.
 
+For the full validation checklist and troubleshooting notes, see
+[VALIDATION.md](VALIDATION.md).
+
 ### Run
 
 ```bash

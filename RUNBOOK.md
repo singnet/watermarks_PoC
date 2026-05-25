@@ -143,7 +143,9 @@ watermarks an image, stores the manifest under a fake Arweave-shaped URI,
 verifies the artifact against that store, publishes a mock Cardano metadata
 anchor, verifies the anchor, and writes a single JSON summary. It proves the
 decentralized provenance shape without requiring funded wallets or network
-services.
+services. The JSON report marks `real_network=false`, `storage_is_fake=true`,
+and `cardano_is_mock=true` so reviewers do not confuse the POC with a real
+chain submission.
 
 ### 4e. openwater.mk hosted service (local FastAPI)
 

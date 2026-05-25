@@ -92,8 +92,9 @@ Trust does **not** flow from a successful watermark extraction:
    user-controlled fields. No user-supplied HTML reaches the response.
 
 9. **Mock Cardano backend.** Receipts label backend as `mock_cardano`
-   verbatim. A reader who skips that line could mistake it for real;
-   the HTML report and JSON receipts both name the backend explicitly.
+   verbatim. `poc_report.json` also includes `real_network=false`,
+   `storage_is_fake=true`, and `cardano_is_mock=true` so private-alpha
+   reports are not confused with real chain evidence.
 
 ### Out of scope here (upstream-`oprow` audit territory)
 

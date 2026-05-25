@@ -80,6 +80,9 @@ openwater poc --out /tmp/openwater-poc      # watermark + fake Arweave + mock Ca
 image, stores the manifest in a fake Arweave-shaped backend by default,
 verifies the watermarked artifact, anchors the manifest commitment in the
 mock Cardano ledger, verifies that anchor, and writes `poc_report.json`.
+The report explicitly marks `real_network=false`, `storage_is_fake=true`,
+and `cardano_is_mock=true`; no real Arweave/IPFS/Cardano network submission
+occurs in this private-alpha POC.
 
 For a cross-process round-trip (sign-and-embed in one shot, verify later
 against persisted artifacts):
